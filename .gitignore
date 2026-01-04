@@ -1,0 +1,40 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+
+# Generated CV files
+cv_sections/
+improved_cv_sections/
+*.tex
+*.pdf
+*.aux
+*.log
+*.out
+
+# Test files (but keep samples)
+test_*.pdf
+test_*.txt
+
+# Keep sample files
+!examples/sample_*.txt
+!examples/*.txt
