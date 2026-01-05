@@ -1,8 +1,9 @@
 """
-ATS scoring module for calculating keyword match scores.
+ATS scoring module for calculating keyword match scores, skill match scores, and experience relevance scores.
 """
 
 from typing import Dict, List, Set
+from src.ats_cv_maker.experience_relevance_scorer import ExperienceRelevanceScorer, JobExperience
 
 
 class ATSScorer:
@@ -129,31 +130,108 @@ class ATSScorer:
         return False
     
     @staticmethod
-    def generate_report(score_data: Dict) -> str:
+    def calculate_skill_match_score(
+        matched_skills: int,
+        total_jd_skills: int
+    ) -> Dict[str, any]:
+        """
+        Calculate skill match score.
+        
+        Formula: (matched_skills / total_jd_skills) * 100
+        
+        Args:
+            matched_skills: Number of skills from CV that matched JD skills
+            total_jd_skills: Total unique skills found in job description
+            
+        Returns:
+            Dictionary containing skill score and details
+        """
+        if total_jd_skills == 0:
+            score = 0.0
+        else:
+            score = min((matched_skills / total_jd_skills) * 100, 100.0)
+        
+        return {
+            'skill_match_score': round(score, 2),
+            'matched_skills': matched_skills,
+            'total_jd_skills': total_jd_skills,
+            'match_percentage': round((matched_skills / max(total_jd_skills, 1)) * 100, 1)
+        }
+    
+    @staticmethod
+    def generate_report(
+        score_data: Dict,
+        skill_score_data: Dict = None,
+        experience_score_data: Dict = None,
+        combined_score: float = None
+    ) -> str:
         """
         Generate a human-readable report from score data.
         
         Args:
             score_data: Score data dictionary from calculate_keyword_match_score
+            skill_score_data: Optional skill score data from calculate_skill_match_score
+            experience_score_data: Optional experience relevance score data
+            combined_score: Optional combined score from both metrics
             
         Returns:
             Formatted report string
         """
         report = []
         report.append("=" * 60)
-        report.append("ATS KEYWORD MATCH SCORE REPORT")
+        report.append("ATS SCORING REPORT")
         report.append("=" * 60)
         report.append("")
         
-        report.append(f"📊 FINAL SCORE: {score_data['final_score']}%")
-        report.append("")
-        
-        report.append(f"Required Keywords Score: {score_data['required_score']}% "
+        # Keyword score section
+        report.append("📋 KEYWORD MATCH SCORE")
+        report.append("-" * 60)
+        report.append(f"SCORE: {score_data['final_score']}%")
+        report.append(f"Required Keywords: {score_data['required_score']}% "
                      f"({score_data['matched_required_count']}/{score_data['total_required']})")
-        report.append(f"Optional Keywords Score: {score_data['optional_score']}% "
+        report.append(f"Optional Keywords: {score_data['optional_score']}% "
                      f"({score_data['matched_optional_count']}/{score_data['total_optional']})")
         report.append("")
         
+        # Skill score section
+        if skill_score_data:
+            report.append("🎯 SKILL MATCH SCORE")
+            report.append("-" * 60)
+            report.append(f"SCORE: {skill_score_data['skill_match_score']}%")
+            report.append(f"Matched Skills: {skill_score_data['matched_skills']}/{skill_score_data['total_jd_skills']} "
+                         f"({skill_score_data['match_percentage']}%)")
+            report.append("")
+        
+        # Experience relevance score section
+        if experience_score_data:
+            report.append("💼 EXPERIENCE RELEVANCE SCORE")
+            report.append("-" * 60)
+            report.append(f"SCORE: {experience_score_data['experience_relevance_score']}%")
+            report.append(f"Title Similarity: {experience_score_data['title_similarity_score']}%")
+            report.append(f"Seniority Match: {experience_score_data['seniority_match_score']}%")
+            report.append(f"Duration Factor: {experience_score_data['duration_factor_score']}%")
+            report.append(f"Relevant Experience: {experience_score_data['matching_positions']} positions, "
+                         f"{experience_score_data['total_relevant_years']} years")
+            
+            if experience_score_data['relevant_experience']:
+                report.append("")
+                report.append("  Matching Positions:")
+                for exp in experience_score_data['relevant_experience']:
+                    report.append(f"    • {exp['job_title']} at {exp['company']}")
+                    report.append(f"      Duration: {exp['duration_years']} years | "
+                                 f"Title Match: {exp['title_similarity']*100:.1f}% | "
+                                 f"Seniority Match: {exp['seniority_match']*100:.1f}%")
+            
+            report.append("")
+        
+        # Combined score section
+        if combined_score is not None:
+            report.append("🏆 COMBINED ATS SCORE")
+            report.append("-" * 60)
+            report.append(f"OVERALL SCORE: {combined_score}%")
+            report.append("")
+        
+        # Matched keywords details
         report.append("✅ MATCHED REQUIRED KEYWORDS:")
         if score_data['matched_required']:
             for kw in sorted(score_data['matched_required']):

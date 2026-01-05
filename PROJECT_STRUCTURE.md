@@ -9,16 +9,25 @@ ats_cv_maker/
 ├── 📁 src/
 │   └── ats_cv_maker/           # Main Python package
 │       ├── __init__.py          # Package initialization
-│       ├── ats_scorer.py        # Score calculation
+│       ├── ats_scorer.py        # ATS score calculation
 │       ├── config.py            # Configuration management
 │       ├── cost_estimator.py    # API cost estimation
 │       ├── cv_extractor.py      # Text extraction from CVs
 │       ├── cv_section_parser.py # AI-powered section parsing
+│       ├── experience_relevance_scorer.py  # Experience relevance scoring ⭐
+│       ├── job_title_normalizer.py        # Job title normalization ⭐
 │       ├── keyword_extractor.py # Keyword extraction (TF-IDF + spaCy)
 │       ├── keyword_placement_agent.py   # LangChain keyword placement
 │       ├── keyword_rating_agent.py      # AI keyword rating
 │       ├── latex_cv_generator.py        # LaTeX CV generation
-│       └── missing_keyword_identifier.py # Missing keyword identification
+│       ├── missing_keyword_identifier.py # Missing keyword identification
+│       ├── skill_extractor.py           # Skill extraction
+│       ├── skill_normalizer.py          # Skill normalization
+│       ├── skill_matcher.py             # Skill matching
+│       ├── pdf_generator.py             # PDF compilation
+│       ├── output_manager.py            # Output management
+│       ├── keyword_placement_agent.py   # Keyword placement
+│       └── pipeline_finalizer.py        # Pipeline finalization
 │
 ├── 📁 docs/                     # Documentation
 │   ├── README.md               # Documentation index
@@ -28,7 +37,12 @@ ats_cv_maker/
 │   ├── COMPARISON.md           # Analysis vs Improvement modes
 │   ├── QUICK_REFERENCE.md      # Command reference
 │   ├── LATEX_INSTALL.md        # LaTeX setup
-│   └── PROJECT_SUMMARY.md      # Technical overview
+│   ├── PROJECT_SUMMARY.md      # Technical overview
+│   ├── EXPERIENCE_RELEVANCE.md # Experience relevance scoring ⭐
+│   ├── SKILL_MATCHING.md       # Skill matching system
+│   ├── SKILL_SYSTEM_INDEX.md   # Skill system documentation
+│   ├── SKILL_MATCHING_QUICKSTART.md # Quick start for skills
+│   └── OUTPUT_MANAGEMENT.md    # Output management guide
 │
 ├── 📁 scripts/                  # Utility scripts
 │   ├── demo.sh                 # Interactive demo
@@ -61,6 +75,8 @@ Core modules:
 - **keyword_extractor.py** - TF-IDF and spaCy-based keyword extraction
 - **keyword_rating_agent.py** - AI-powered keyword categorization
 - **ats_scorer.py** - ATS score calculation and reporting
+- **experience_relevance_scorer.py** ⭐ - Experience relevance scoring
+- **job_title_normalizer.py** ⭐ - Job title normalization with AI support
 
 Improvement modules:
 - **cv_section_parser.py** - LangChain CV section parsing
@@ -124,6 +140,8 @@ from src.ats_cv_maker import (
     ATSScorer,
     CVSectionParser,
     LaTeXCVGenerator,
+    ExperienceRelevanceScorer,  # ⭐ New
+    JobTitleNormalizer,          # ⭐ New
 )
 
 # Extract CV text
@@ -133,6 +151,13 @@ cv_text = extractor.extract("resume.pdf")
 # Extract keywords
 keyword_extractor = KeywordExtractor()
 keywords = keyword_extractor.extract_keywords(cv_text)
+
+# Score experience relevance ⭐
+exp_scorer = ExperienceRelevanceScorer()
+experience_score = exp_scorer.score_experience(
+    cv_experiences=experiences,
+    target_job_title="Senior Engineer"
+)
 ```
 
 ### Running scripts:

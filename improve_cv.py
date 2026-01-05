@@ -1,6 +1,7 @@
 """
 ATS CV Improver - Main orchestration script with CV improvement workflow
 Analyzes CV, adds missing keywords, generates improved LaTeX CV and PDF.
+Includes experience relevance scoring.
 """
 
 import sys
@@ -16,6 +17,7 @@ from src.ats_cv_maker.missing_keyword_identifier import MissingKeywordIdentifier
 from src.ats_cv_maker.keyword_placement_agent import KeywordPlacementAgent
 from src.ats_cv_maker.latex_cv_generator import LaTeXCVGenerator
 from src.ats_cv_maker.pdf_generator import PDFGenerator
+from src.ats_cv_maker.experience_relevance_scorer import ExperienceRelevanceScorer
 
 
 def analyze_cv(cv_path: str, jd_path: str, use_spacy: bool = True) -> dict:
@@ -62,6 +64,30 @@ def analyze_cv(cv_path: str, jd_path: str, use_spacy: bool = True) -> dict:
         optional_keywords=rated_keywords['optional']
     )
     
+    # Calculate experience relevance score
+    experience_score = None
+    try:
+        print("\n💼 Analyzing experience relevance...")
+        section_parser = CVSectionParser()
+        sections = section_parser.parse_cv(cv_text)
+        
+        if sections.work_experience:
+            from main import extract_target_job_title
+            target_job_title = extract_target_job_title(jd_text, jd_keywords)
+            
+            scorer_exp = ExperienceRelevanceScorer(use_embeddings=True)
+            cv_experiences = scorer_exp.parse_cv_work_experience(sections.work_experience)
+            
+            if cv_experiences:
+                experience_score = scorer_exp.score_experience(
+                    cv_experiences=cv_experiences,
+                    target_job_title=target_job_title,
+                    target_seniority="Mid"
+                )
+                print(f"✓ Experience relevance score: {experience_score['experience_relevance_score']:.1f}/100")
+    except Exception as e:
+        print(f"⚠️  Experience analysis skipped: {e}")
+    
     return {
         'cv_text': cv_text,
         'jd_text': jd_text,
@@ -69,6 +95,7 @@ def analyze_cv(cv_path: str, jd_path: str, use_spacy: bool = True) -> dict:
         'jd_keywords': jd_keywords,
         'rated_keywords': rated_keywords,
         'initial_score': initial_score,
+        'experience_score': experience_score,
         'keyword_extractor': keyword_extractor,
         'scorer': scorer
     }
@@ -265,7 +292,10 @@ def main():
         
         # Show initial score
         print("\n" + "=" * 60)
-        initial_report = analysis_data['scorer'].generate_report(analysis_data['initial_score'])
+        initial_report = analysis_data['scorer'].generate_report(
+            analysis_data['initial_score'],
+            experience_score_data=analysis_data.get('experience_score')
+        )
         print(initial_report)
         
         if args.analyze_only:
@@ -293,7 +323,10 @@ def main():
         
         # Show new score details
         print("\n" + "=" * 60)
-        new_report = analysis_data['scorer'].generate_report(new_score_data['new_score'])
+        new_report = analysis_data['scorer'].generate_report(
+            new_score_data['new_score'],
+            experience_score_data=analysis_data.get('experience_score')
+        )
         print(new_report)
         
         # Step 4: Generate LaTeX and PDF

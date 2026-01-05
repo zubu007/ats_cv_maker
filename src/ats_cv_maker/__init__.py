@@ -3,6 +3,7 @@ ATS CV Maker - Intelligent CV scoring and improvement system.
 
 This package provides tools to analyze CVs against job descriptions,
 identify missing keywords, and automatically generate improved CVs.
+Includes experience relevance scoring for better candidate evaluation.
 """
 
 __version__ = "0.2.0"
@@ -16,6 +17,8 @@ from src.ats_cv_maker.missing_keyword_identifier import MissingKeywordIdentifier
 from src.ats_cv_maker.keyword_placement_agent import KeywordPlacementAgent
 from src.ats_cv_maker.latex_cv_generator import LaTeXCVGenerator
 from src.ats_cv_maker.pdf_generator import PDFGenerator
+from src.ats_cv_maker.experience_relevance_scorer import ExperienceRelevanceScorer, JobExperience
+from src.ats_cv_maker.job_title_normalizer import JobTitleNormalizer
 
 __all__ = [
     "CVExtractor",
@@ -27,4 +30,7 @@ __all__ = [
     "KeywordPlacementAgent",
     "LaTeXCVGenerator",
     "PDFGenerator",
+    "ExperienceRelevanceScorer",
+    "JobExperience",
+    "JobTitleNormalizer",
 ]
