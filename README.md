@@ -4,6 +4,49 @@ This software project is licensed under the MIT License.
 
 An intelligent ATS (Applicant Tracking System) tool that scores your CV through keyword matching AND skill matching, then automatically improves it by adding missing keywords and generating a professional LaTeX PDF.
 
+## 🚀 NEW: SaaS REST API (Perfect for Web Applications!)
+
+**Now with REST API endpoints!** Build a web application on top of ATS CV Maker.
+
+### Quick Start API
+```bash
+# Install and start the API
+pip install -e .
+python -m spacy download en_core_web_sm
+python api_server.py
+
+# Access documentation at http://localhost:8000/docs
+```
+
+### API Endpoints
+- **POST** `/api/v1/analyze` - Analyze CV vs Job Description
+- **POST** `/api/v1/improve` - Get CV improvement recommendations
+- **POST** `/api/v1/match-skills` - Analyze skill matching
+
+### Usage Example (JavaScript)
+```javascript
+const response = await fetch('http://localhost:8000/api/v1/analyze', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    cv_content: 'Your CV text...',
+    job_description: 'Job description...'
+  })
+});
+const data = await response.json();
+console.log(`ATS Score: ${data.ats_score.percentage}%`);
+```
+
+### Building a SaaS?
+See [SAAS_CONVERSION_README.md](./SAAS_CONVERSION_README.md) and [SAAS_CHECKLIST.md](./SAAS_CHECKLIST.md) for:
+- Complete API documentation
+- Frontend integration guides (React, Vue, Next.js)
+- Database and authentication setup
+- Payment integration
+- Deployment instructions
+
+📚 **[Start here for SaaS setup →](./SAAS_CONVERSION_README.md)**
+
 ## Features
 
 ### Analysis Features
