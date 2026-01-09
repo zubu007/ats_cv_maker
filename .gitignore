@@ -38,3 +38,6 @@ test_*.txt
 # Keep sample files
 !examples/sample_*.txt
 !examples/*.txt
+
+# node_modules (if using any JS tools)
+frontend/node_modules/
