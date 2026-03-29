@@ -32,7 +32,7 @@ class CVSectionParser:
     def __init__(self):
         """Initialize the CV section parser."""
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
-        self.model_name = os.getenv('AI_MODEL', 'gpt-4')
+        self.model_name = os.getenv('AI_MODEL', 'gpt-4-turbo')
         
         if self.provider == 'openai':
             self.llm = ChatOpenAI(
@@ -62,30 +62,17 @@ class CVSectionParser:
         Returns:
             CVSections object with parsed sections
         """
-        prompt = f"""You are an expert CV parser. Analyze the following CV and extract it into structured sections.
+        # Truncate CV text if too long (keep first 15000 chars ~3750 tokens)
+        max_chars = 15000
+        if len(cv_text) > max_chars:
+            cv_text = cv_text[:max_chars] + "\n...[CV truncated for processing]"
+        
+        prompt = f"""Extract this CV into sections. Keep text AS-IS, don't modify.
 
-IMPORTANT INSTRUCTIONS:
-1. Extract the text AS-IS without modification
-2. Keep all content exactly as written
-3. Preserve formatting, bullet points, and structure
-4. If a section doesn't exist, return an empty string
-5. Do NOT add, modify, or improve the content
-6. Do NOT fix grammar or spelling
-7. Preserve all line breaks and formatting
-
-CV Text:
+CV:
 {cv_text}
 
-Extract the CV into these sections:
-- personal_info: Name, contact details
-- professional_summary: Summary or objective
-- skills: Technical and professional skills
-- work_experience: All job positions and descriptions
-- education: Degrees and academic background
-- projects: Personal or professional projects
-- certifications: Professional certifications
-- additional: Awards, publications, volunteer work, etc.
-"""
+Sections: personal_info, professional_summary, skills, work_experience, education, projects, certifications, additional."""
         
         try:
             result = self.structured_llm.invoke(prompt)

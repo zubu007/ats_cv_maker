@@ -18,7 +18,7 @@ class KeywordRatingAgent:
     def __init__(self):
         """Initialize the keyword rating agent."""
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
-        self.model = os.getenv('AI_MODEL', 'gpt-4')
+        self.model = os.getenv('AI_MODEL', 'gpt-4-turbo')
         
         if self.provider == 'openai':
             self._init_openai()
@@ -80,34 +80,28 @@ class KeywordRatingAgent:
         Returns:
             Formatted prompt string
         """
-        keywords_str = "\n".join([f"- {kw}" for kw in keywords])
+        # Truncate job description if too long
+        max_jd_chars = 3000
+        if len(job_description) > max_jd_chars:
+            job_description = job_description[:max_jd_chars] + "..."
         
-        prompt = f"""You are an expert ATS (Applicant Tracking System) analyst. Your task is to categorize keywords from a job description into two categories: REQUIRED and OPTIONAL.
+        keywords_str = ", ".join(keywords[:50])  # Limit keywords to 50
+        
+        prompt = f"""Categorize these keywords from a job description as REQUIRED or OPTIONAL.
 
-REQUIRED keywords are:
-- Skills, technologies, or qualifications explicitly marked as "required", "must have", "essential"
-- Core competencies central to the role
-- Years of experience if specifically mentioned as mandatory
-- Critical certifications or degrees
-
-OPTIONAL keywords are:
-- Skills marked as "preferred", "nice to have", "bonus"
-- Secondary skills or "plus" qualifications
-- General industry terms not specifically emphasized
+REQUIRED: explicitly marked "required", "must have", "essential", or core to role
+OPTIONAL: marked "preferred", "nice to have", "bonus", or secondary skills
 
 Job Description:
 {job_description}
 
-Keywords to categorize:
-{keywords_str}
+Keywords: {keywords_str}
 
-Respond ONLY with a JSON object in this exact format:
+Respond with JSON:
 {{
   "required": ["keyword1", "keyword2"],
   "optional": ["keyword3", "keyword4"]
-}}
-
-Make sure every keyword from the list is categorized into either required or optional."""
+}}"""
         
         return prompt
     

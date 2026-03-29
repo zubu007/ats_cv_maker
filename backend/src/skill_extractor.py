@@ -30,7 +30,7 @@ class SkillExtractor:
     def __init__(self):
         """Initialize the skill extractor."""
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
-        self.model_name = os.getenv('AI_MODEL', 'gpt-4')
+        self.model_name = os.getenv('AI_MODEL', 'gpt-4-turbo')
         
         if self.provider == 'openai':
             self.llm = ChatOpenAI(
@@ -60,22 +60,17 @@ class SkillExtractor:
         Returns:
             SkillList with extracted skills
         """
-        prompt = f"""You are an expert CV analyst. Extract ALL professional skills, technologies, tools, 
-programming languages, frameworks, methodologies, and competencies mentioned in this CV.
+        # Truncate CV text if too long
+        max_chars = 8000
+        if len(cv_text) > max_chars:
+            cv_text = cv_text[:max_chars] + "..."
+        
+        prompt = f"""Extract ALL skills from this CV: programming languages, frameworks, tools, databases, methodologies, soft skills.
 
-IMPORTANT:
-1. Extract every skill mentioned, including soft skills
-2. Include programming languages, frameworks, tools, databases, platforms
-3. Include professional methodologies (Agile, Scrum, etc.)
-4. Include soft skills (leadership, communication, problem-solving)
-5. Be comprehensive - don't filter or limit
-6. Keep skill names exactly as written in the CV (preserve original names)
-7. No duplicates
-
-CV Text:
+CV:
 {cv_text}
 
-Extract all skills found in this CV."""
+Be comprehensive, no duplicates."""
         
         try:
             result = self.structured_llm.invoke(prompt)
@@ -93,23 +88,17 @@ Extract all skills found in this CV."""
         Returns:
             SkillList with extracted skills
         """
-        prompt = f"""You are an expert recruiter. Extract ALL skills, technologies, tools, 
-programming languages, frameworks, and requirements mentioned in this job description.
-
-IMPORTANT:
-1. Extract every skill requirement mentioned
-2. Include both required and preferred skills
-3. Include programming languages, frameworks, databases, tools, platforms
-4. Include professional methodologies and processes
-5. Include soft skills and competencies
-6. Be comprehensive - capture all requirements
-7. Keep skill names exactly as written in the JD (preserve original names)
-8. No duplicates
+        # Truncate job description if too long
+        max_chars = 6000
+        if len(jd_text) > max_chars:
+            jd_text = jd_text[:max_chars] + "..."
+        
+        prompt = f"""Extract ALL skills and requirements from this job description: required & preferred skills, technologies, tools, methodologies, soft skills.
 
 Job Description:
 {jd_text}
 
-Extract all skills and requirements from this job description."""
+Be comprehensive, no duplicates."""
         
         try:
             result = self.structured_llm.invoke(prompt)

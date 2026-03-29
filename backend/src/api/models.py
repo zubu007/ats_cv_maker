@@ -89,6 +89,8 @@ class CVImprovementResponse(BaseModel):
     keyword_placements: List[KeywordPlacement]
     improvement_summary: str
     estimated_new_score: AtsScoreResponse
+    improved_pdf_base64: Optional[str] = None
+    improved_pdf_url: Optional[str] = None
 
 
 class SkillMatchingRequest(BaseModel):

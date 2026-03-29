@@ -33,7 +33,7 @@ class KeywordPlacementAgent:
     def __init__(self):
         """Initialize the keyword placement agent."""
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
-        self.model_name = os.getenv('AI_MODEL', 'gpt-4')
+        self.model_name = os.getenv('AI_MODEL', 'gpt-4-turbo')
         
         if self.provider == 'openai':
             self.llm = ChatOpenAI(
@@ -70,69 +70,46 @@ class KeywordPlacementAgent:
         Returns:
             ImprovedCVSections with keywords added
         """
-        keywords_str = "\n".join([f"- {kw}" for kw in keywords_to_add])
+        # Truncate sections to prevent token overflow
+        def truncate(text: str, max_chars: int = 2000) -> str:
+            if len(text) > max_chars:
+                return text[:max_chars] + "..."
+            return text
         
-        jd_context = f"\n\nJob Description Context:\n{job_description}" if job_description else ""
+        keywords_str = ", ".join(keywords_to_add[:15])  # Limit to 15 keywords
         
-        prompt = f"""You are an expert CV writer and ATS optimization specialist. Your task is to naturally integrate missing keywords into a CV to improve its ATS score while maintaining authenticity and readability.
+        # Truncate job description context
+        jd_snippet = ""
+        if job_description:
+            jd_snippet = f"\nJob: {truncate(job_description, 500)}"
+        
+        prompt = f"""Add these keywords naturally to the CV sections. Keep original content, only enhance.
 
-CRITICAL RULES:
-1. Add keywords ONLY where they make sense contextually
-2. Maintain the original tone and style of the CV
-3. Be truthful - don't fabricate experience or skills
-4. Integrate keywords naturally into existing content
-5. Prefer adding to Skills, Professional Summary, and Work Experience sections
-6. For technical skills, add them to the Skills section
-7. For soft skills or methodologies, weave into experience descriptions
-8. Keep the content honest and verifiable
-9. Maintain professional language and formatting
-10. Preserve all original contact information exactly
+Keywords to add: {keywords_str}{jd_snippet}
 
-ORIGINAL CV SECTIONS:
+SECTIONS (keep formatting):
 
-Personal Info:
-{sections.personal_info}
+Personal: {truncate(sections.personal_info, 500)}
 
-Professional Summary:
-{sections.professional_summary}
+Summary: {truncate(sections.professional_summary, 1000)}
 
-Skills:
-{sections.skills}
+Skills: {truncate(sections.skills, 1500)}
 
-Work Experience:
-{sections.work_experience}
+Experience: {truncate(sections.work_experience, 3000)}
 
-Education:
-{sections.education}
+Education: {truncate(sections.education, 1000)}
 
-Projects:
-{sections.projects or "N/A"}
+Projects: {truncate(sections.projects or "", 1000)}
 
-Certifications:
-{sections.certifications or "N/A"}
+Certs: {truncate(sections.certifications or "", 500)}
 
-Additional:
-{sections.additional or "N/A"}
+Other: {truncate(sections.additional or "", 500)}
 
-KEYWORDS TO ADD (prioritize these):
-{keywords_str}
-{jd_context}
-
-PLACEMENT STRATEGIES:
-1. **Skills Section**: Add technical skills, tools, technologies directly
-2. **Professional Summary**: Incorporate key skills and methodologies naturally
-3. **Work Experience**: Add relevant tools/technologies to existing job descriptions
-4. **Projects**: Mention technologies used in projects
-5. **Education**: Add relevant coursework or specializations if applicable
-
-OUTPUT REQUIREMENTS:
-- Return all sections even if unchanged
-- Add keywords naturally without being obvious
-- Maintain original formatting and structure
-- Don't remove any existing content
-- Provide placement_notes explaining what was added and where
-
-Improve the CV by adding these keywords appropriately."""
+RULES:
+- Add keywords naturally to Skills, Summary, or Experience
+- Don't fabricate experience
+- Keep original content intact
+- Note where you added keywords in placement_notes"""
         
         try:
             result = self.structured_llm.invoke(prompt)

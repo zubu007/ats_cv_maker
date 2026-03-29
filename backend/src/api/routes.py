@@ -187,7 +187,8 @@ async def improve_cv(request: CVImprovementRequest):
             keywords_to_add=result['keywords_to_add'][:10],
             keyword_placements=keyword_placements,
             improvement_summary=summary,
-            estimated_new_score=estimated_new_score
+            estimated_new_score=estimated_new_score,
+            improved_pdf_base64=result.get('improved_pdf_base64')
         )
         
     except Exception as e:

@@ -30,7 +30,7 @@ class JobTitleNormalizer:
     def __init__(self):
         """Initialize the job title normalizer."""
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
-        self.model_name = os.getenv('AI_MODEL', 'gpt-4')
+        self.model_name = os.getenv('AI_MODEL', 'gpt-4-turbo')
         
         if self.provider == 'openai':
             self.llm = ChatOpenAI(

@@ -15,7 +15,7 @@ class Config:
     
     # AI Provider Settings
     AI_PROVIDER = os.getenv('AI_PROVIDER', 'openai').lower()
-    AI_MODEL = os.getenv('AI_MODEL', 'gpt-4')
+    AI_MODEL = os.getenv('AI_MODEL', 'gpt-4o-mini')  # Using mini for cost and speed
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
     
@@ -32,7 +32,7 @@ class Config:
     
     # AI Agent Settings
     AI_TEMPERATURE = 0.3    # Temperature for AI responses (lower = more consistent)
-    AI_MAX_TOKENS = 1500    # Maximum tokens for AI responses
+    AI_MAX_TOKENS = 4000    # Maximum tokens for AI responses
     
     # Score Interpretation Thresholds
     EXCELLENT_THRESHOLD = 80  # Score >= 80% is excellent
@@ -116,8 +116,8 @@ class Config:
         if errors:
             print("\n⚠️  Configuration Errors:")
             for error in errors:
-            print(f"  - {error}")
-            print("=" * 60)
+                print(f"  - {error}")
+                print("=" * 60)
         else:
             print("✅ Configuration is valid")
             print("=" * 60)

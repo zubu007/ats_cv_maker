@@ -14,9 +14,16 @@ from ..skill_matcher import SkillMatcher
 from ..cv_section_parser import CVSectionParser
 from ..experience_relevance_scorer import ExperienceRelevanceScorer
 from ..missing_keyword_identifier import MissingKeywordIdentifier
-from ..keyword_placement_agent import KeywordPlacementAgent
+from ..keyword_placement_agent import KeywordPlacementAgent, ImprovedCVSections
+from ..pdf_generator import PDFGenerator
+from ..latex_cv_generator import LaTeXCVGenerator
 import re
+import logging
+import tempfile
+import os
+import base64
 
+logger = logging.getLogger(__name__)
 
 class ATSCVMakerService:
     """Main service class for ATS CV Maker operations"""
@@ -218,12 +225,52 @@ class ATSCVMakerService:
                 for kw in keywords_to_add
             ]
         
+        # Generate improved PDF
+        improved_pdf_base64 = None
+        try:
+            improved_sections_dict = improved_sections if improved_sections else sections
+            
+            # Convert dict sections to ImprovedCVSections object if needed
+            if isinstance(improved_sections_dict, dict):
+                improved_sections_obj = ImprovedCVSections(
+                    personal_info=improved_sections_dict.get('personal_info', ''),
+                    professional_summary=improved_sections_dict.get('professional_summary', ''),
+                    skills=improved_sections_dict.get('skills', ''),
+                    work_experience=improved_sections_dict.get('work_experience', ''),
+                    education=improved_sections_dict.get('education', ''),
+                    projects=improved_sections_dict.get('projects', ''),
+                    certifications=improved_sections_dict.get('certifications', ''),
+                    additional=improved_sections_dict.get('additional', '')
+                )
+            else:
+                improved_sections_obj = improved_sections_dict
+            
+            # Generate LaTeX from improved sections
+            latex_code = LaTeXCVGenerator.generate_latex(improved_sections_obj)
+            
+            # Create temporary directory for LaTeX compilation
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Write LaTeX to file
+                tex_path = os.path.join(temp_dir, 'cv.tex')
+                with open(tex_path, 'w') as f:
+                    f.write(latex_code)
+                
+                # Compile to PDF
+                pdf_path = PDFGenerator.compile_latex_to_pdf(tex_path, temp_dir)
+                
+                # Convert PDF to base64
+                with open(pdf_path, 'rb') as pdf_file:
+                    improved_pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Error generating improved PDF: {str(e)}")
+        
         return {
             'original_analysis': analysis,
             'sections': sections,
             'missing_data': missing_data,
             'keywords_to_add': keywords_to_add,
-            'keyword_placements': keyword_placements
+            'keyword_placements': keyword_placements,
+            'improved_pdf_base64': improved_pdf_base64
         }
     
     def match_skills(

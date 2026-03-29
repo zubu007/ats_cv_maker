@@ -39,7 +39,7 @@ class SkillNormalizer:
     def __init__(self):
         """Initialize the skill normalizer."""
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
-        self.model_name = os.getenv('AI_MODEL', 'gpt-4')
+        self.model_name = os.getenv('AI_MODEL', 'gpt-4-turbo')
         
         if self.provider == 'openai':
             self.llm = ChatOpenAI(
@@ -70,37 +70,21 @@ class SkillNormalizer:
         Returns:
             NormalizedSkillList with normalized skills and decisions
         """
-        skills_str = "\n".join(f"- {skill}" for skill in skills)
+        # Limit number of skills to prevent token overflow
+        skills = skills[:40]  # Process max 40 skills
+        skills_str = ", ".join(skills)
         
-        prompt = f"""You are an expert skill standardization and taxonomy specialist. Your task is to intelligently 
-normalize and standardize skills while deciding which ones truly benefit from normalization.
+        prompt = f"""Normalize these skills intelligently. Group similar technologies only when beneficial.
 
-IMPORTANT GUIDELINES:
-1. ONLY normalize skills when it makes sense (e.g., similar technologies, frameworks, or related tools)
-2. Examples of good normalization:
-   - "PyTorch" and "TensorFlow" → "Deep Learning Framework" (if both appear)
-   - "React", "Vue", "Angular" → "Frontend Framework" (if multiple appear)
-   - "Java", "Python", "C++" → Keep as-is (NO normalization for languages)
-   - "AWS", "Azure", "GCP" → "Cloud Platform" (if multiple appear)
-3. DO NOT normalize unique or distinctive skills
-4. DO NOT normalize programming languages (keep Java, Python, C++ as-is)
-5. DO NOT normalize well-known brand names unless there are many similar competitors
-6. Ask yourself: "Does normalizing this skill help match with job requirements?"
-7. For each skill, decide: normalize or keep as-is based on presence of similar alternatives
+Skills: {skills_str}
 
-Skills to normalize:
-{skills_str}
+Rules:
+- Group similar frameworks/tools (e.g., PyTorch + TensorFlow → "Deep Learning Framework")
+- Keep languages distinct (Java, Python, C++)
+- Only normalize when it helps matching
+- Context: {context}
 
-For each skill:
-1. Analyze if there are similar alternatives in the list
-2. Decide whether normalization is beneficial (yes/no)
-3. If normalizing, provide a meaningful normalized name
-4. Categorize each skill
-5. Provide brief reasoning
-
-Context: {context}
-
-Normalize these skills intelligently. Remember: normalize only when it truly helps with skill matching."""
+For each skill provide: original_skill, normalized_name, category, should_normalize (bool), reasoning."""
         
         try:
             result = self.structured_llm.invoke(prompt)
