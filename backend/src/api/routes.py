@@ -19,8 +19,16 @@ from .models import (
     RatedKeywords,
     SkillData,
     KeywordPlacement,
+    SectionComparison,
+    CVScoreRequest,
+    CVScoreResponse,
+    CoverLetterRequest,
+    CoverLetterResponse,
+    RenderPDFRequest,
+    RenderPDFResponse,
 )
 from .core import ATSCVMakerService
+from ..cover_letter_generator import CoverLetterGenerator
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -94,15 +102,15 @@ async def analyze_cv(request: CVAnalysisRequest):
         
         # Format experience score if available
         experience_score = None
-        if result['experience_score']:
-            experience_score = {
-                'experience_relevance_score': result['experience_score'].get('experience_relevance_score', 0),
-                'experience_count': len(result['experience_score'].get('cv_experiences', [])),
-                'relevant_experiences': [
-                    exp.get('title', 'Unknown') 
-                    for exp in result['experience_score'].get('cv_experiences', [])[:5]
-                ]
-            }
+        if result.get('experience_score'):
+            experience_score = result['experience_score']
+
+        # Format section comparisons
+        section_comparisons_list = None
+        if result.get('section_comparisons'):
+            section_comparisons_list = [
+                SectionComparison(**comp) for comp in result['section_comparisons']
+            ]
         
         # Create summary
         summary = f"CV Analysis Complete: {ats_score.percentage:.1f}% match with {ats_score.matched_required}/{ats_score.total_required} required keywords."
@@ -114,6 +122,7 @@ async def analyze_cv(request: CVAnalysisRequest):
             ats_score=ats_score,
             skill_score=result['skill_score_data'],
             experience_score=experience_score,
+            section_comparisons=section_comparisons_list,
             analysis_summary=summary
         )
         
@@ -260,3 +269,54 @@ async def match_skills(request: SkillMatchingRequest):
     except Exception as e:
         logger.error(f"Error matching skills: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error matching skills: {str(e)}")
+
+
+@router.post("/score", response_model=CVScoreResponse)
+async def score_cv_route(request: CVScoreRequest):
+    """
+    Summarizes the job description and scores the CV against it.
+    """
+    try:
+        result = service.score_cv(
+            cv_content=request.cv_content,
+            job_description=request.job_description,
+        )
+        return CVScoreResponse(
+            jd_summary=result["jd_summary"],
+            score=result["score"]
+        )
+    except Exception as e:
+        logger.error(f"Error in /score endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+@router.post("/generate-cover-letter", response_model=CoverLetterResponse)
+async def generate_cover_letter(request: CoverLetterRequest):
+    """
+    Generates a cover letter based on the CV and job description.
+    """
+    try:
+        generator = CoverLetterGenerator()
+        result = generator.generate(
+            cv_content=request.cv_content,
+            job_description=request.job_description,
+        )
+        return CoverLetterResponse(
+            cover_letter_text=result["cover_letter_text"],
+            cover_letter_pdf=result["cover_letter_pdf"]
+        )
+    except Exception as e:
+        logger.error(f"Error in /generate-cover-letter endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+@router.post("/render-pdf", response_model=RenderPDFResponse)
+async def render_pdf(request: RenderPDFRequest):
+    """
+    Renders text to PDF.
+    """
+    try:
+        generator = CoverLetterGenerator()
+        pdf_base64 = generator._generate_pdf(request.text)
+        return RenderPDFResponse(pdf=pdf_base64)
+    except Exception as e:
+        logger.error(f"Error in /render-pdf endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")

@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import React, { useMemo, useState } from 'react';
+import AnalysisSectionsGrid from './components/AnalysisSectionsGrid';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -32,6 +34,8 @@ export default function App() {
   const [pdfUrl, setPdfUrl] = useState('');
   const [error, setError] = useState('');
   const [loadingAction, setLoadingAction] = useState('');
+  const [scoreResult, setScoreResult] = useState(null);
+
 
   const hasPendingAction = Boolean(loadingAction);
   const hasData = analysisResult || improvementResult;
@@ -173,6 +177,23 @@ export default function App() {
     }
   };
 
+  const handleScore = async () => {
+    if (!cvPayload || !jobDescription.trim()) {
+      setError('Add a PDF CV and paste a job description to continue.');
+      return;
+    }
+
+    const payload = {
+      cv_content: cvPayload,
+      job_description: jobDescription.trim(),
+    };
+
+    const data = await doRequest('/api/v1/score', payload, 'score');
+    if (data) {
+      setScoreResult(data);
+    }
+  };
+
   const primaryButtonClasses =
     'px-5 py-3 rounded-xl text-sm font-semibold uppercase tracking-wide transition flex items-center justify-center gap-2';
 
@@ -192,7 +213,8 @@ export default function App() {
             </p>
             <div className="flex flex-wrap gap-3 text-sm text-slate-300">
               <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">API: {API_BASE_URL}</span>
-              <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">Endpoints: /api/v1/analyze, /api/v1/improve</span>
+              <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">Endpoints: /api/v1/analyze, /api/v1/improve, /api/v1/score</span>
+              <Link to="/cover-letter" className="rounded-full bg-white/5 px-3 py-2 border border-white/10 hover:border-teal/60">Generate Cover Letter</Link>
             </div>
           </div>
         </header>
@@ -259,6 +281,14 @@ export default function App() {
               >
                 {loadingAction === 'improve' ? 'Improving...' : 'Improve CV'}
               </button>
+              <button
+                type="button"
+                onClick={handleScore}
+                disabled={hasPendingAction}
+                className={`${primaryButtonClasses} bg-purple-600 text-white shadow-glow-purple hover:scale-[1.01] disabled:opacity-60`}
+              >
+                {loadingAction === 'score' ? 'Scoring...' : 'Quick Score'}
+              </button>
             </div>
           </section>
 
@@ -317,6 +347,30 @@ export default function App() {
             )}
           </section>
         </main>
+
+        {analysisResult?.section_comparisons?.length > 0 && (
+          <AnalysisSectionsGrid sections={analysisResult.section_comparisons} />
+        )}
+
+        {scoreResult && (
+          <section className="mt-8 glass rounded-3xl p-6 card-border">
+            <h3 className="text-2xl font-semibold text-white">Quick Score: {scoreResult.score.toFixed(1)}%</h3>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-lg font-semibold text-white">Task Description</h4>
+                <ul className="mt-2 list-disc list-inside text-slate-300">
+                  {scoreResult.jd_summary.task_description.map((task, i) => <li key={i}>{task}</li>)}
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-lg font-semibold text-white">Candidate Requirements</h4>
+                <ul className="mt-2 list-disc list-inside text-slate-300">
+                  {scoreResult.jd_summary.candidate_requirements.map((req, i) => <li key={i}>{req}</li>)}
+                </ul>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="mt-8 glass rounded-3xl p-6 card-border">
           <div className="flex items-center justify-between gap-2 mb-4">

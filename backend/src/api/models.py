@@ -54,6 +54,17 @@ class ExperienceRelevanceScore(BaseModel):
     relevant_experiences: List[str]
 
 
+class SectionComparison(BaseModel):
+    """Model for section-by-section comparison between CV and JD"""
+    section_name: str = Field(..., description="Section name (e.g., 'skills', 'education')")
+    cv_items: List[str] = Field(default_factory=list, description="Items found in CV")
+    jd_items: List[str] = Field(default_factory=list, description="Items required in JD")
+    matched_items: List[str] = Field(default_factory=list, description="Items present in both")
+    missing_items: List[str] = Field(default_factory=list, description="Required but not in CV")
+    extra_items: List[str] = Field(default_factory=list, description="In CV but not required")
+    match_percentage: float = Field(0.0, description="Percentage of JD items found in CV")
+
+
 class CVAnalysisResponse(BaseModel):
     """Complete response model for CV analysis"""
     cv_keywords: List[KeywordData]
@@ -62,6 +73,7 @@ class CVAnalysisResponse(BaseModel):
     ats_score: AtsScoreResponse
     skill_score: Optional[Dict[str, Any]] = None
     experience_score: Optional[ExperienceRelevanceScore] = None
+    section_comparisons: Optional[List[SectionComparison]] = None
     analysis_summary: str
 
 
@@ -115,3 +127,29 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     api_ready: bool
+
+class JDSummary(BaseModel):
+    task_description: List[str]
+    candidate_requirements: List[str]
+
+class CVScoreRequest(BaseModel):
+    cv_content: str
+    job_description: str
+
+class CVScoreResponse(BaseModel):
+    jd_summary: JDSummary
+    score: float
+
+class CoverLetterRequest(BaseModel):
+    cv_content: str
+    job_description: str
+
+class CoverLetterResponse(BaseModel):
+    cover_letter_text: str
+    cover_letter_pdf: str
+
+class RenderPDFRequest(BaseModel):
+    text: str
+
+class RenderPDFResponse(BaseModel):
+    pdf: str

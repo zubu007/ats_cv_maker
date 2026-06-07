@@ -17,6 +17,9 @@ from ..missing_keyword_identifier import MissingKeywordIdentifier
 from ..keyword_placement_agent import KeywordPlacementAgent, ImprovedCVSections
 from ..pdf_generator import PDFGenerator
 from ..latex_cv_generator import LaTeXCVGenerator
+from ..section_comparator import SectionComparator
+from ..jd_summarizer import JDSummarizer
+from ..cover_letter_generator import CoverLetterGenerator
 import re
 import logging
 import tempfile
@@ -99,20 +102,27 @@ class ATSCVMakerService:
             try:
                 skill_extractor = SkillExtractor()
                 cv_skills = skill_extractor.extract_skills_from_cv(cv_content)
-                jd_skills = skill_extractor.extract_skills_from_text(jd_content)
-                
-                skill_normalizer = SkillNormalizer()
-                normalized_cv_skills = skill_normalizer.normalize_skills(cv_skills.skills, context="cv")
-                normalized_jd_skills = skill_normalizer.normalize_skills(jd_skills.skills, context="jd")
+                jd_skills = skill_extractor.extract_skills_from_job_description(jd_content)
                 
                 skill_matcher = SkillMatcher()
-                skill_score_data = skill_matcher.calculate_skill_match(
+                match_results = skill_matcher.match_skills(
                     cv_skills.skills,
-                    jd_skills.skills,
-                    normalized_cv_skills,
-                    normalized_jd_skills
+                    jd_skills.skills
                 )
-            except Exception:
+                
+                # Calculate skill score
+                skill_score_data = {
+                    'cv_skills': cv_skills.skills,
+                    'jd_skills': jd_skills.skills,
+                    'matched_skills': [m['cv_skill'] for m in match_results['matched_skills']],
+                    'missing_skills': [s for s in jd_skills.skills if not any(m['jd_skill'] == s for m in match_results['matched_skills'])],
+                    'skill_match_percentage': SkillMatcher.calculate_skill_score(
+                        match_results['total_matched'],
+                        match_results['total_jd_skills']
+                    )
+                }
+            except Exception as e:
+                logger.error(f"Error in skill matching: {str(e)}")
                 skill_score_data = None
         
         # Experience relevance
@@ -134,6 +144,53 @@ class ATSCVMakerService:
                         )
             except Exception:
                 experience_score = None
+
+        # Section-by-section comparisons
+        section_comparisons = []
+        try:
+            comparator = SectionComparator()
+            
+            # Parse CV sections for comparison
+            try:
+                cv_sections = self.section_parser.parse_cv(cv_content)
+            except:
+                cv_sections = None
+            
+            # Compare Skills
+            if skill_score_data and 'cv_skills' in skill_score_data and 'jd_skills' in skill_score_data:
+                skills_comparison = comparator.compare_skills(
+                    skill_score_data['cv_skills'][:15],
+                    skill_score_data['jd_skills'][:15]
+                )
+                section_comparisons.append(skills_comparison)
+            
+            # Compare Keywords
+            keywords_comparison = comparator.compare_keywords(
+                cv_keywords[:15],
+                rated_keywords['required'][:10],
+                rated_keywords['optional'][:10]
+            )
+            section_comparisons.append(keywords_comparison)
+            
+            # Compare Education
+            if cv_sections and cv_sections.education:
+                education_comparison = comparator.compare_education(
+                    cv_sections.education,
+                    jd_content
+                )
+                section_comparisons.append(education_comparison)
+            
+            # Compare Experience
+            if experience_score:
+                experience_comparison = comparator.compare_experience(
+                    experience_score.get('experience_count', 0),
+                    jd_content
+                )
+                section_comparisons.append(experience_comparison)
+                
+        except Exception as e:
+            logger.error(f"Error creating section comparisons: {str(e)}")
+            section_comparisons = []
         
         return {
             'cv_keywords': cv_keywords,
@@ -142,6 +199,7 @@ class ATSCVMakerService:
             'score_data': score_data,
             'skill_score_data': skill_score_data,
             'experience_score': experience_score,
+            'section_comparisons': section_comparisons,
             'cv_content': cv_content,
             'jd_content': jd_content
         }
@@ -197,6 +255,7 @@ class ATSCVMakerService:
         
         # Get placement suggestions using the keyword placement agent
         placement_agent = KeywordPlacementAgent()
+        improved_sections = None
         try:
             improved_sections = placement_agent.improve_cv_with_keywords(
                 sections=sections,
@@ -215,6 +274,8 @@ class ATSCVMakerService:
             ]
         except Exception as e:
             # Fallback if improve_cv_with_keywords fails
+            logger.error(f"Error improving CV with keywords: {str(e)}")
+            improved_sections = None
             keyword_placements = [
                 {
                     'keyword': kw,
@@ -228,31 +289,32 @@ class ATSCVMakerService:
         # Generate improved PDF
         improved_pdf_base64 = None
         try:
-            improved_sections_dict = improved_sections if improved_sections else sections
-            
-            # Convert dict sections to ImprovedCVSections object if needed
-            if isinstance(improved_sections_dict, dict):
-                improved_sections_obj = ImprovedCVSections(
-                    personal_info=improved_sections_dict.get('personal_info', ''),
-                    professional_summary=improved_sections_dict.get('professional_summary', ''),
-                    skills=improved_sections_dict.get('skills', ''),
-                    work_experience=improved_sections_dict.get('work_experience', ''),
-                    education=improved_sections_dict.get('education', ''),
-                    projects=improved_sections_dict.get('projects', ''),
-                    certifications=improved_sections_dict.get('certifications', ''),
-                    additional=improved_sections_dict.get('additional', '')
-                )
+            # Use improved sections if available, otherwise use original sections
+            if improved_sections:
+                # improved_sections is already an ImprovedCVSections object
+                sections_for_pdf = improved_sections
             else:
-                improved_sections_obj = improved_sections_dict
+                # Convert CVSections to ImprovedCVSections
+                sections_for_pdf = ImprovedCVSections(
+                    personal_info=sections.personal_info,
+                    professional_summary=sections.professional_summary,
+                    skills=sections.skills,
+                    work_experience=sections.work_experience,
+                    education=sections.education,
+                    projects=sections.projects or '',
+                    certifications=sections.certifications or '',
+                    additional=sections.additional or '',
+                    placement_notes='No improvements applied - using original CV sections.'
+                )
             
-            # Generate LaTeX from improved sections
-            latex_code = LaTeXCVGenerator.generate_latex(improved_sections_obj)
+            # Generate LaTeX from sections
+            latex_code = LaTeXCVGenerator.generate_latex(sections_for_pdf)
             
             # Create temporary directory for LaTeX compilation
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Write LaTeX to file
                 tex_path = os.path.join(temp_dir, 'cv.tex')
-                with open(tex_path, 'w') as f:
+                with open(tex_path, 'w', encoding='utf-8') as f:
                     f.write(latex_code)
                 
                 # Compile to PDF
@@ -263,6 +325,7 @@ class ATSCVMakerService:
                     improved_pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
         except Exception as e:
             logger.error(f"Error generating improved PDF: {str(e)}")
+            # Don't raise, just log - PDF generation is optional
         
         return {
             'original_analysis': analysis,
@@ -306,17 +369,82 @@ class ATSCVMakerService:
         
         # Match skills
         skill_matcher = SkillMatcher()
-        matched_skills = skill_matcher.calculate_skill_match(
+        match_results = skill_matcher.match_skills(
             cv_skills.skills,
-            jd_skills.skills,
-            normalized_cv_skills,
-            normalized_jd_skills
+            jd_skills.skills
         )
+        
+        # Calculate missing skills
+        missing_skills = [
+            s for s in jd_skills.skills 
+            if not any(m['jd_skill'] == s for m in match_results['matched_skills'])
+        ]
         
         return {
             'cv_skills': cv_skills.skills,
             'jd_skills': jd_skills.skills,
             'normalized_cv_skills': normalized_cv_skills,
             'normalized_jd_skills': normalized_jd_skills,
-            'matched_skills': matched_skills
+            'matched_skills': match_results['matched_skills'],
+            'missing_skills': missing_skills,
+            'skill_match_percentage': SkillMatcher.calculate_skill_score(
+                match_results['total_matched'],
+                match_results['total_jd_skills']
+            )
         }
+
+    def score_cv(self, cv_content: str, job_description: str) -> Dict[str, Any]:
+        """
+        Summarizes the JD and scores the CV against it.
+        """
+        # Step 1: Summarize the Job Description
+        jd_summarizer = JDSummarizer()
+        jd_summary = jd_summarizer.summarize(job_description)
+        
+        # Step 2: Extract keywords from the CV
+        keyword_extractor = KeywordExtractor(use_spacy=False) # Keep it fast
+        cv_keywords = keyword_extractor.extract_keywords(cv_content, max_keywords=100)
+
+        # Step 3: Score CV against the summarized JD
+        score = self._calculate_score(cv_keywords, jd_summary)
+
+        return {
+            "jd_summary": jd_summary,
+            "cv_keywords": cv_keywords,
+            "score": score,
+        }
+
+    def _calculate_score(self, cv_keywords: List[str], jd_summary: Dict[str, List[str]]) -> float:
+        """
+        Calculates a score based on keyword matches.
+        """
+        if not jd_summary["task_description"] and not jd_summary["candidate_requirements"]:
+            return 0.0
+
+        # Combine JD points into a single string for matching
+        jd_text = " ".join(jd_summary["task_description"] + jd_summary["candidate_requirements"])
+        
+        if not jd_text:
+            return 0.0
+
+        matched_keywords = 0
+        for keyword in cv_keywords:
+            if keyword.lower() in jd_text.lower():
+                matched_keywords += 1
+        
+        # Simple scoring: percentage of CV keywords that appear in the JD summary
+        # This can be improved with more advanced scoring logic
+        score = (matched_keywords / len(cv_keywords)) * 100 if cv_keywords else 0.0
+        
+        return min(score, 100.0)
+
+    def generate_cover_letter(self, cv_content: str, job_description: str) -> Dict[str, str]:
+        """
+        Generates a cover letter.
+        """
+        generator = CoverLetterGenerator()
+        result = generator.generate(
+            cv_content=cv_content,
+            job_description=job_description,
+        )
+        return result
