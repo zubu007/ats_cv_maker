@@ -36,10 +36,54 @@ app = FastAPI(
 )
 
 # Add CORS middleware
-cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+default_cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
+
+raw_cors_origins = os.getenv("CORS_ORIGINS", ",".join(default_cors_origins))
+cors_origins = [origin.strip() for origin in raw_cors_origins.split(",") if origin.strip()]
+
+# CORS wildcard cannot be combined with credentials in browser requests.
+if "*" in cors_origins:
+    logger.warning(
+        "CORS_ORIGINS contains '*'. Replacing with explicit local development origins "
+        "because cookies are enabled."
+    )
+    cors_origins = default_cors_origins
+
+
+def _add_localhost_variants(origins: list[str]) -> list[str]:
+    """
+    Ensure localhost/127.0.0.1 variants are both allowed for each local origin.
+    """
+    expanded: list[str] = []
+
+    for origin in origins:
+        if origin not in expanded:
+            expanded.append(origin)
+
+        if "localhost" in origin:
+            variant = origin.replace("localhost", "127.0.0.1")
+            if variant not in expanded:
+                expanded.append(variant)
+        elif "127.0.0.1" in origin:
+            variant = origin.replace("127.0.0.1", "localhost")
+            if variant not in expanded:
+                expanded.append(variant)
+
+    return expanded
+
+
+cors_origins = _add_localhost_variants(cors_origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in cors_origins],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

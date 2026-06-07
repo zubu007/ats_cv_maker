@@ -5,6 +5,7 @@ import { apiRequest } from '../auth/api';
 
 export default function AuthPage() {
   const [mode, setMode] = useState('login');
+  const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -53,6 +54,7 @@ export default function AuthPage() {
       await apiRequest(endpoint, {
         method: 'POST',
         body: {
+          ...(mode === 'signup' ? { first_name: firstName.trim() } : {}),
           email: email.trim(),
           password,
         },
@@ -80,6 +82,21 @@ export default function AuthPage() {
         </p>
 
         <form className="mt-6 space-y-4" onSubmit={submit}>
+          {mode === 'signup' && (
+            <label className="block">
+              <span className="text-sm text-slate-300">First name</span>
+              <input
+                type="text"
+                required
+                maxLength={120}
+                autoComplete="given-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="mt-1 w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-teal/60"
+              />
+            </label>
+          )}
+
           <label className="block">
             <span className="text-sm text-slate-300">Email</span>
             <input

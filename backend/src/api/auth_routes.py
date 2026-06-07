@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
+import json
 import os
 import secrets
+import tempfile
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..cv_extractor import CVExtractor
+from ..cv_section_parser import CVSectionParser
 from .auth_schemas import (
     AuthResponse,
+    CVUploadRequest,
+    CVWorkspaceResponse,
+    CVWorkspaceUpdateRequest,
     LoginRequest,
     MessageResponse,
     SignupRequest,
@@ -25,7 +33,7 @@ from .auth_schemas import (
     UserResponse,
 )
 from .db import get_db
-from .db_models import User, UserDataItem, UserSession
+from .db_models import User, UserCvWorkspace, UserDataItem, UserSession
 
 auth_router = APIRouter(prefix="/api/v1", tags=["Auth"])
 
@@ -133,6 +141,73 @@ def _get_valid_session(db: Session, token: str) -> UserSession | None:
     return db.execute(query).scalar_one_or_none()
 
 
+def _get_workspace(db: Session, user_id: int) -> UserCvWorkspace | None:
+    query = select(UserCvWorkspace).where(UserCvWorkspace.user_id == user_id)
+    return db.execute(query).scalar_one_or_none()
+
+
+def _serialize_sections(raw_json: str | None) -> dict[str, str]:
+    if not raw_json:
+        return {}
+
+    try:
+        data = json.loads(raw_json)
+        if not isinstance(data, dict):
+            return {}
+        return {
+            str(section_name): str(section_content or "")
+            for section_name, section_content in data.items()
+            if str(section_name).strip()
+        }
+    except json.JSONDecodeError:
+        return {}
+
+
+def _normalize_section_name(name: str) -> str:
+    return "_".join(name.strip().lower().split())
+
+
+def _sanitize_sections(sections: dict[str, str]) -> dict[str, str]:
+    cleaned_sections: dict[str, str] = {}
+
+    for section_name, section_content in sections.items():
+        normalized_name = _normalize_section_name(section_name)
+        if not normalized_name:
+            continue
+
+        cleaned_sections[normalized_name] = (section_content or "").strip()
+
+    return cleaned_sections
+
+
+def _workspace_response(workspace: UserCvWorkspace | None) -> CVWorkspaceResponse:
+    if not workspace:
+        return CVWorkspaceResponse(
+            has_uploaded_cv=False,
+            cv_file_name=None,
+            sections={},
+            updated_at=None,
+        )
+
+    return CVWorkspaceResponse(
+        has_uploaded_cv=workspace.has_uploaded_cv,
+        cv_file_name=workspace.cv_file_name,
+        sections=_serialize_sections(workspace.sections_json),
+        updated_at=workspace.updated_at,
+    )
+
+
+def _upsert_workspace(db: Session, user_id: int) -> UserCvWorkspace:
+    workspace = _get_workspace(db, user_id)
+    if workspace:
+        return workspace
+
+    workspace = UserCvWorkspace(user_id=user_id, sections_json="{}")
+    db.add(workspace)
+    db.flush()
+    return workspace
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
@@ -157,14 +232,19 @@ def signup(
     db: Session = Depends(get_db),
 ):
     email = _normalize_email(payload.email)
+    first_name = payload.first_name.strip()
+
     if "@" not in email or "." not in email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email format")
+
+    if not first_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="First name is required")
 
     existing_user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if existing_user:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists")
 
-    user = User(email=email, password_hash=_hash_password(payload.password))
+    user = User(first_name=first_name, email=email, password_hash=_hash_password(payload.password))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -214,6 +294,100 @@ def logout(
 @auth_router.get("/auth/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return UserResponse.model_validate(current_user)
+
+
+@auth_router.get("/cv/workspace", response_model=CVWorkspaceResponse)
+def get_cv_workspace(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    workspace = _get_workspace(db, current_user.id)
+    return _workspace_response(workspace)
+
+
+@auth_router.post("/cv/workspace/upload", response_model=CVWorkspaceResponse)
+def upload_cv_and_extract_sections(
+    payload: CVUploadRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    temp_pdf_path: str | None = None
+
+    try:
+        cv_bytes = base64.b64decode(payload.cv_base64, validate=True)
+    except (ValueError, binascii.Error):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid base64 CV payload")
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+            temp_pdf.write(cv_bytes)
+            temp_pdf.flush()
+            temp_pdf_path = temp_pdf.name
+
+        cv_text = CVExtractor.extract_from_pdf(temp_pdf_path)
+
+        parser = CVSectionParser()
+        parsed_sections = parser.parse_cv(cv_text)
+        extracted_sections = {
+            section_name: section_content.strip()
+            for section_name, section_content in parsed_sections.model_dump().items()
+            if isinstance(section_content, str) and section_content.strip()
+        }
+
+        workspace = _upsert_workspace(db, current_user.id)
+        workspace.cv_file_name = payload.file_name.strip()
+        workspace.cv_text = cv_text
+        workspace.has_uploaded_cv = True
+        workspace.sections_json = json.dumps(extracted_sections)
+
+        db.commit()
+        db.refresh(workspace)
+
+        return _workspace_response(workspace)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not process CV: {exc}",
+        )
+    finally:
+        if temp_pdf_path and os.path.exists(temp_pdf_path):
+            os.remove(temp_pdf_path)
+
+
+@auth_router.put("/cv/workspace", response_model=CVWorkspaceResponse)
+def update_cv_workspace_sections(
+    payload: CVWorkspaceUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    sections = _sanitize_sections(payload.sections)
+
+    workspace = _upsert_workspace(db, current_user.id)
+    workspace.sections_json = json.dumps(sections)
+
+    db.commit()
+    db.refresh(workspace)
+
+    return _workspace_response(workspace)
+
+
+@auth_router.post("/cv/workspace/reset", response_model=CVWorkspaceResponse)
+def reset_cv_workspace(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    workspace = _upsert_workspace(db, current_user.id)
+    workspace.cv_file_name = None
+    workspace.cv_text = None
+    workspace.has_uploaded_cv = False
+    workspace.sections_json = "{}"
+
+    db.commit()
+    db.refresh(workspace)
+
+    return _workspace_response(workspace)
 
 
 @auth_router.post("/me/data", response_model=UserDataResponse, status_code=status.HTTP_201_CREATED)

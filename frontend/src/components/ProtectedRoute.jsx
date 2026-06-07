@@ -79,7 +79,7 @@ export default function ProtectedRoute({ children }) {
             </Link>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-300">
-            <span className="hidden sm:inline">{user.email}</span>
+            <span className="hidden sm:inline">{user.first_name || user.email}</span>
             <button
               type="button"
               onClick={handleLogout}

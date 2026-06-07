@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -57,4 +59,65 @@ def init_db() -> None:
     """Create all configured tables if they do not already exist."""
     from . import db_models  # pylint: disable=unused-import
 
+    _ensure_postgres_database_exists()
+    _apply_safe_migrations()
     Base.metadata.create_all(bind=engine)
+
+
+def _apply_safe_migrations() -> None:
+    """
+    Apply lightweight schema updates for environments without a migration tool.
+    """
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+
+    if "users" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("users")}
+        if "first_name" not in user_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN first_name VARCHAR(120) NOT NULL DEFAULT ''")
+                )
+
+
+def _ensure_postgres_database_exists() -> None:
+    """
+    Ensure the target PostgreSQL database exists before applying migrations.
+    """
+    if not DATABASE_URL.startswith("postgresql"):
+        return
+
+    target_url = make_url(DATABASE_URL)
+    target_database = target_url.database
+
+    if not target_database:
+        return
+
+    maintenance_url = target_url.set(database="postgres")
+
+    maintenance_engine = create_engine(
+        maintenance_url,
+        future=True,
+        pool_pre_ping=True,
+        isolation_level="AUTOCOMMIT",
+    )
+
+    quoted_database_name = target_database.replace('"', '""')
+
+    try:
+        with maintenance_engine.connect() as connection:
+            exists = connection.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :db_name"),
+                {"db_name": target_database},
+            ).scalar()
+
+            if not exists:
+                connection.execute(text(f'CREATE DATABASE "{quoted_database_name}"'))
+                logger.info("Created PostgreSQL database '%s'.", target_database)
+    except SQLAlchemyError as exc:
+        raise RuntimeError(
+            "Could not connect to PostgreSQL to initialize database. "
+            "Verify DATABASE_URL, credentials, and that PostgreSQL is running."
+        ) from exc
+    finally:
+        maintenance_engine.dispose()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -14,6 +14,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    first_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
@@ -25,6 +26,11 @@ class User(Base):
     data_items: Mapped[list["UserDataItem"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    cv_workspace: Mapped["UserCvWorkspace | None"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 
@@ -59,3 +65,28 @@ class UserDataItem(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="data_items")
+
+
+class UserCvWorkspace(Base):
+    __tablename__ = "user_cv_workspaces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    cv_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cv_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    has_uploaded_cv: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sections_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="cv_workspace")

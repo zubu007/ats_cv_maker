@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SignupRequest(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=120)
     email: str = Field(..., min_length=5, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
 
@@ -19,6 +20,7 @@ class LoginRequest(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
+    first_name: str
     email: str
     created_at: datetime
 
@@ -56,3 +58,19 @@ class UserDataResponse(BaseModel):
 
 class UserDataListResponse(BaseModel):
     items: list[UserDataResponse]
+
+
+class CVUploadRequest(BaseModel):
+    cv_base64: str = Field(..., min_length=20)
+    file_name: str = Field(default="uploaded_cv.pdf", min_length=1, max_length=255)
+
+
+class CVWorkspaceUpdateRequest(BaseModel):
+    sections: dict[str, str]
+
+
+class CVWorkspaceResponse(BaseModel):
+    has_uploaded_cv: bool
+    cv_file_name: str | None = None
+    sections: dict[str, str]
+    updated_at: datetime | None = None

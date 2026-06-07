@@ -1,405 +1,422 @@
 import { Link } from 'react-router-dom';
-import React, { useMemo, useState } from 'react';
-import AnalysisSectionsGrid from './components/AnalysisSectionsGrid';
+import { useEffect, useMemo, useState } from 'react';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { apiRequest } from './auth/api';
 
-function base64ToBlob(base64, contentType = 'application/pdf') {
-  const byteCharacters = atob(base64);
-  const byteArrays = [];
+const STARTER_SECTIONS = [
+  'personal_info',
+  'professional_summary',
+  'skills',
+  'work_experience',
+  'education',
+  'projects',
+  'certifications',
+  'additional',
+];
 
-  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-    const slice = byteCharacters.slice(offset, offset + 512);
-    const byteNumbers = new Array(slice.length);
-
-    for (let i = 0; i < slice.length; i += 1) {
-      byteNumbers[i] = slice.charCodeAt(i);
-    }
-
-    byteArrays.push(new Uint8Array(byteNumbers));
-  }
-
-  return new Blob(byteArrays, { type: contentType });
+function sectionLabelFromKey(sectionKey) {
+  return sectionKey
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
-const fallbackPdfMessage =
-  'Improved PDF will appear here after running "Improve CV" once the API returns a PDF payload.';
+function normalizeSectionName(input) {
+  return input.trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const dataUrl = String(reader.result || '');
+        resolve(dataUrl.split(',')[1] || '');
+      } catch {
+        reject(new Error('Could not read file.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Could not read file.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [sections, setSections] = useState({});
+  const [hasUploadedCv, setHasUploadedCv] = useState(false);
   const [cvFileName, setCvFileName] = useState('');
-  const [cvPayload, setCvPayload] = useState('');
-  const [jobDescription, setJobDescription] = useState('');
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [improvementResult, setImprovementResult] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState('');
+  const [newSectionName, setNewSectionName] = useState('');
+
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
+  const [processingUpload, setProcessingUpload] = useState(false);
+  const [savingSections, setSavingSections] = useState(false);
   const [error, setError] = useState('');
-  const [loadingAction, setLoadingAction] = useState('');
-  const [scoreResult, setScoreResult] = useState(null);
 
+  const [uploadPromptDismissed, setUploadPromptDismissed] = useState(false);
 
-  const hasPendingAction = Boolean(loadingAction);
-  const hasData = analysisResult || improvementResult;
+  const sectionEntries = useMemo(
+    () => Object.entries(sections),
+    [sections],
+  );
 
-  const scoreRows = useMemo(() => {
-    const rows = [];
-    if (analysisResult?.ats_score) {
-      const ats = analysisResult.ats_score;
-      rows.push({
-        label: 'Current ATS Score',
-        percentage: ats.percentage,
-        required: `${ats.matched_required}/${ats.total_required}`,
-        optional: `${ats.matched_optional}/${ats.total_optional}`,
-      });
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadDashboard() {
+      setLoadingDashboard(true);
+      setError('');
+
+      try {
+        const [currentUser, workspace] = await Promise.all([
+          apiRequest('/api/v1/auth/me'),
+          apiRequest('/api/v1/cv/workspace'),
+        ]);
+
+        if (!mounted) {
+          return;
+        }
+
+        setUser(currentUser);
+        setSections(workspace?.sections || {});
+        setHasUploadedCv(Boolean(workspace?.has_uploaded_cv));
+        setCvFileName(workspace?.cv_file_name || '');
+      } catch (err) {
+        if (mounted) {
+          setError(err.message || 'Could not load your dashboard.');
+        }
+      } finally {
+        if (mounted) {
+          setLoadingDashboard(false);
+        }
+      }
     }
 
-    if (improvementResult?.original_score) {
-      const original = improvementResult.original_score;
-      rows.push({
-        label: 'Original Score (Improve run)',
-        percentage: original.percentage,
-        required: `${original.matched_required}/${original.total_required}`,
-        optional: `${original.matched_optional}/${original.total_optional}`,
-      });
-    }
+    loadDashboard();
 
-    if (improvementResult?.estimated_new_score) {
-      const est = improvementResult.estimated_new_score;
-      rows.push({
-        label: 'Estimated Improved Score',
-        percentage: est.percentage,
-        required: `${est.matched_required}/${est.total_required}`,
-        optional: `${est.matched_optional}/${est.total_optional}`,
-      });
-    }
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-    return rows;
-  }, [analysisResult, improvementResult]);
+  const setSectionValue = (sectionKey, content) => {
+    setSections((prev) => ({
+      ...prev,
+      [sectionKey]: content,
+    }));
+  };
 
-  const handleFile = (file) => {
-    if (!file) return;
-    if (file.type !== 'application/pdf') {
-      setError('Please drop a PDF file');
+  const removeSection = (sectionKey) => {
+    setSections((prev) => {
+      const next = { ...prev };
+      delete next[sectionKey];
+      return next;
+    });
+  };
+
+  const addSection = () => {
+    const normalized = normalizeSectionName(newSectionName);
+    if (!normalized) {
+      setError('Add a section name first.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      // Strip the data URL prefix so the API receives pure base64.
-      const base64 = result.split(',')[1];
-      setCvPayload(base64);
-      setCvFileName(file.name);
-      setError('');
-    };
-    reader.readAsDataURL(file);
+    if (sections[normalized] !== undefined) {
+      setError('This section already exists.');
+      return;
+    }
+
+    setSections((prev) => ({
+      ...prev,
+      [normalized]: '',
+    }));
+    setNewSectionName('');
+    setError('');
   };
 
-  const handleDrop = (event) => {
-    event.preventDefault();
-    const file = event.dataTransfer?.files?.[0];
-    handleFile(file);
+  const createStarterSections = () => {
+    setSections((prev) => {
+      const next = { ...prev };
+      STARTER_SECTIONS.forEach((sectionName) => {
+        if (next[sectionName] === undefined) {
+          next[sectionName] = '';
+        }
+      });
+      return next;
+    });
   };
 
-  const handleBrowse = (event) => {
-    const file = event.target.files?.[0];
-    handleFile(file);
-  };
-
-  const doRequest = async (endpoint, body, actionLabel) => {
-    setLoadingAction(actionLabel);
+  const saveSections = async () => {
+    setSavingSections(true);
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const workspace = await apiRequest('/api/v1/cv/workspace', {
+        method: 'PUT',
+        body: { sections },
       });
 
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        throw new Error(errorPayload.detail || 'API request failed');
-      }
-
-      return await response.json();
+      setSections(workspace?.sections || {});
+      setHasUploadedCv(Boolean(workspace?.has_uploaded_cv));
+      setCvFileName(workspace?.cv_file_name || '');
     } catch (err) {
-      setError(err.message);
-      return null;
+      setError(err.message || 'Could not save sections.');
     } finally {
-      setLoadingAction('');
+      setSavingSections(false);
     }
   };
 
-  const handleAnalyze = async () => {
-    if (!cvPayload || !jobDescription.trim()) {
-      setError('Add a PDF CV and paste a job description to continue.');
+  const resetUploadedCv = async () => {
+    setError('');
+
+    try {
+      const workspace = await apiRequest('/api/v1/cv/workspace/reset', {
+        method: 'POST',
+      });
+
+      setSections(workspace?.sections || {});
+      setHasUploadedCv(false);
+      setCvFileName('');
+    } catch (err) {
+      setError(err.message || 'Could not reset uploaded CV state.');
+    }
+  };
+
+  const uploadCv = async (file) => {
+    if (!file) {
       return;
     }
 
-    const payload = {
-      cv_content: cvPayload,
-      job_description: jobDescription.trim(),
-      include_skills: true,
-      include_experience: true,
-      max_keywords: 50,
-    };
-
-    const data = await doRequest('/api/v1/analyze', payload, 'analyze');
-    if (data) {
-      setAnalysisResult(data);
-    }
-  };
-
-  const handleImprove = async () => {
-    if (!cvPayload || !jobDescription.trim()) {
-      setError('Add a PDF CV and paste a job description to continue.');
+    if (file.type !== 'application/pdf') {
+      setError('Please upload a PDF CV.');
       return;
     }
 
-    const payload = {
-      cv_content: cvPayload,
-      job_description: jobDescription.trim(),
-      max_keywords_to_add: 10,
-      include_experience: true,
-      use_spacy: true,
-    };
+    setProcessingUpload(true);
+    setError('');
 
-    const data = await doRequest('/api/v1/improve', payload, 'improve');
-    if (data) {
-      setImprovementResult(data);
+    try {
+      const cvBase64 = await readFileAsBase64(file);
+      const workspace = await apiRequest('/api/v1/cv/workspace/upload', {
+        method: 'POST',
+        body: {
+          cv_base64: cvBase64,
+          file_name: file.name,
+        },
+      });
 
-      if (data.improved_pdf_base64) {
-        const blob = base64ToBlob(data.improved_pdf_base64);
-        setPdfUrl(URL.createObjectURL(blob));
-      } else if (data.improved_pdf_url) {
-        setPdfUrl(data.improved_pdf_url);
-      }
+      setSections(workspace?.sections || {});
+      setHasUploadedCv(Boolean(workspace?.has_uploaded_cv));
+      setCvFileName(workspace?.cv_file_name || file.name);
+      setUploadPromptDismissed(true);
+    } catch (err) {
+      setError(err.message || 'Could not process CV upload.');
+    } finally {
+      setProcessingUpload(false);
     }
   };
 
-  const handleScore = async () => {
-    if (!cvPayload || !jobDescription.trim()) {
-      setError('Add a PDF CV and paste a job description to continue.');
-      return;
-    }
-
-    const payload = {
-      cv_content: cvPayload,
-      job_description: jobDescription.trim(),
-    };
-
-    const data = await doRequest('/api/v1/score', payload, 'score');
-    if (data) {
-      setScoreResult(data);
-    }
+  const handleDrop = async (event) => {
+    event.preventDefault();
+    const file = event.dataTransfer?.files?.[0];
+    await uploadCv(file);
   };
 
-  const primaryButtonClasses =
-    'px-5 py-3 rounded-xl text-sm font-semibold uppercase tracking-wide transition flex items-center justify-center gap-2';
+  const handleBrowse = async (event) => {
+    const file = event.target.files?.[0];
+    await uploadCv(file);
+  };
+
+  if (loadingDashboard) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center text-slate-300">
+        Loading your workspace...
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen pb-20">
-      <div className="max-w-6xl mx-auto px-6 pt-14">
-        <header className="flex flex-col gap-4">
-          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-teal uppercase tracking-[0.2em]">
-            ATS CV Maker
-          </span>
-          <div className="flex flex-col gap-3">
-            <h1 className="text-4xl md:text-5xl font-semibold text-white">
-              Analyze and Improve CVs for Any Job in Minutes
-            </h1>
-            <p className="text-slate-300 max-w-3xl">
-              Drop a PDF, paste the role description, and instantly see ATS scores. Run an improvement pass to estimate how much higher your score can go and preview the upgraded PDF when the backend returns it.
-            </p>
-            <div className="flex flex-wrap gap-3 text-sm text-slate-300">
-              <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">API: {API_BASE_URL}</span>
-              <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">Endpoints: /api/v1/analyze, /api/v1/improve, /api/v1/score</span>
-              <Link to="/cover-letter" className="rounded-full bg-white/5 px-3 py-2 border border-white/10 hover:border-teal/60">Generate Cover Letter</Link>
-            </div>
-          </div>
-        </header>
+    <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
+      <header className="glass rounded-3xl p-6 card-border">
+        <p className="text-xs uppercase tracking-[0.2em] text-teal">ATS CV Maker</p>
+        <h1 className="mt-3 text-3xl md:text-4xl font-semibold text-white">
+          Welcome, {user?.first_name || 'there'}
+        </h1>
+        <p className="mt-2 text-slate-300">
+          Build your CV workspace by uploading a PDF or manually editing sections.
+        </p>
 
-        <main className="mt-10 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6 items-start">
-          <section className="glass rounded-3xl p-6 shadow-glow-teal card-border">
-            <div
-              className="border-2 border-dashed border-white/15 rounded-2xl p-6 bg-white/5 hover:border-teal/60 transition relative"
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
+        <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-300">
+          <Link to="/cover-letter" className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/60">
+            Cover Letter
+          </Link>
+          <Link to="/my-data" className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/60">
+            My Data
+          </Link>
+          {hasUploadedCv && cvFileName && (
+            <span className="rounded-full border border-teal/30 bg-teal/10 px-3 py-1.5 text-teal">
+              CV: {cvFileName}
+            </span>
+          )}
+        </div>
+      </header>
+
+      {!hasUploadedCv && !uploadPromptDismissed && (
+        <section
+          className="glass rounded-3xl p-6 card-border border-2 border-dashed border-white/20 bg-white/5 relative"
+          onDrop={handleDrop}
+          onDragOver={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            onClick={() => setUploadPromptDismissed(true)}
+            className="absolute top-3 right-3 rounded-full border border-white/20 px-3 py-1 text-xs text-slate-300"
+          >
+            Close
+          </button>
+
+          <p className="text-xs uppercase tracking-[0.2em] text-teal">First-time setup</p>
+          <h2 className="mt-3 text-2xl font-semibold text-white">Drag and drop your CV PDF</h2>
+          <p className="mt-2 text-sm text-slate-300 max-w-3xl">
+            We will extract sections with AI and build editable section blocks automatically.
+          </p>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <input id="main-cv-upload" type="file" accept="application/pdf" className="hidden" onChange={handleBrowse} />
+            <label
+              htmlFor="main-cv-upload"
+              className="cursor-pointer rounded-xl bg-teal px-4 py-3 text-ink text-sm font-semibold uppercase tracking-[0.06em]"
             >
-              <input id="cv-upload" type="file" accept="application/pdf" onChange={handleBrowse} />
-              <label htmlFor="cv-upload" className="block cursor-pointer">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex flex-col gap-2">
-                    <p className="text-sm uppercase tracking-[0.25em] text-slate-400">CV Upload</p>
-                    <h2 className="text-2xl font-semibold text-white">Drop your PDF here</h2>
-                    <p className="text-slate-300 text-sm">
-                      Drag and drop a PDF CV or click to browse. File is encoded to base64 and sent as `cv_content`.
-                    </p>
-                    {cvFileName && (
-                      <span className="mt-2 inline-flex w-fit items-center gap-2 rounded-full bg-teal/10 px-3 py-2 text-sm text-teal border border-teal/30">
-                        Ready: {cvFileName}
-                      </span>
-                    )}
-                  </div>
-                  <div className="h-16 w-16 rounded-2xl bg-teal/10 border border-teal/30 flex items-center justify-center text-xl text-teal font-semibold">
-                    PDF
-                  </div>
-                </div>
-              </label>
-            </div>
+              Upload CV
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setUploadPromptDismissed(true);
+                createStarterSections();
+              }}
+              className="rounded-xl border border-white/20 px-4 py-3 text-sm text-slate-200"
+            >
+              Skip and fill manually
+            </button>
+          </div>
 
-            <div className="mt-6">
-              <p className="text-sm uppercase tracking-[0.25em] text-slate-400 mb-2">Job Description</p>
-              <textarea
-                value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value)}
-                placeholder="Paste the job description here..."
-                className="w-full h-40 rounded-2xl glass card-border p-4 text-base text-white bg-white/5 focus:outline-none focus:ring-2 focus:ring-teal/60"
-              />
-            </div>
+          {processingUpload && (
+            <p className="mt-4 text-sm text-teal">Processing CV and extracting sections with AI...</p>
+          )}
+        </section>
+      )}
 
-            {error && (
-              <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-100 px-4 py-3 text-sm">
-                {error}
-              </div>
-            )}
+      {error && (
+        <div className="rounded-2xl border border-red-500/40 bg-red-500/10 text-red-100 px-4 py-3 text-sm">
+          {error}
+        </div>
+      )}
 
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={handleAnalyze}
-                disabled={hasPendingAction}
-                className={`${primaryButtonClasses} bg-teal text-ink shadow-glow-teal hover:scale-[1.01] disabled:opacity-60`}
-              >
-                {loadingAction === 'analyze' ? 'Analyzing...' : 'Analyze CV'}
-              </button>
-              <button
-                type="button"
-                onClick={handleImprove}
-                disabled={hasPendingAction}
-                className={`${primaryButtonClasses} bg-white/10 border border-white/20 text-white shadow-glow-lavender hover:border-white/40 disabled:opacity-60`}
-              >
-                {loadingAction === 'improve' ? 'Improving...' : 'Improve CV'}
-              </button>
-              <button
-                type="button"
-                onClick={handleScore}
-                disabled={hasPendingAction}
-                className={`${primaryButtonClasses} bg-purple-600 text-white shadow-glow-purple hover:scale-[1.01] disabled:opacity-60`}
-              >
-                {loadingAction === 'score' ? 'Scoring...' : 'Quick Score'}
-              </button>
-            </div>
-          </section>
-
-          <section className="glass rounded-3xl p-6 shadow-glow-lavender card-border space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Live Scores</p>
-                <h3 className="text-2xl font-semibold text-white">ATS + Estimate</h3>
-              </div>
-              {hasPendingAction && (
-                <span className="text-sm text-teal">Working...</span>
-              )}
-            </div>
-
-            {scoreRows.length > 0 ? (
-              <div className="overflow-hidden rounded-2xl border border-white/10">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-white/10 text-slate-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-semibold">Metric</th>
-                      <th className="px-4 py-3 text-left font-semibold">Percentage</th>
-                      <th className="px-4 py-3 text-left font-semibold">Required</th>
-                      <th className="px-4 py-3 text-left font-semibold">Optional</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {scoreRows.map((row) => (
-                      <tr key={row.label} className="hover:bg-white/5 transition">
-                        <td className="px-4 py-3 text-white font-medium">{row.label}</td>
-                        <td className="px-4 py-3 text-teal font-semibold">{row.percentage?.toFixed?.(1) ?? row.percentage}%</td>
-                        <td className="px-4 py-3 text-slate-200">{row.required}</td>
-                        <td className="px-4 py-3 text-slate-200">{row.optional}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 px-4 py-8 text-center text-sm text-slate-400">
-                Run Analyze or Improve to see live ATS numbers.
-              </div>
-            )}
-
-            {analysisResult?.analysis_summary && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
-                <p className="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Analysis Summary</p>
-                <p>{analysisResult.analysis_summary}</p>
-              </div>
-            )}
-
-            {improvementResult?.improvement_summary && (
-              <div className="rounded-2xl border border-teal/30 bg-teal/10 p-4 text-sm text-white">
-                <p className="text-xs uppercase tracking-[0.25em] text-white/70 mb-2">Improvement Summary</p>
-                <p>{improvementResult.improvement_summary}</p>
-              </div>
-            )}
-          </section>
-        </main>
-
-        {analysisResult?.section_comparisons?.length > 0 && (
-          <AnalysisSectionsGrid sections={analysisResult.section_comparisons} />
-        )}
-
-        {scoreResult && (
-          <section className="mt-8 glass rounded-3xl p-6 card-border">
-            <h3 className="text-2xl font-semibold text-white">Quick Score: {scoreResult.score.toFixed(1)}%</h3>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h4 className="text-lg font-semibold text-white">Task Description</h4>
-                <ul className="mt-2 list-disc list-inside text-slate-300">
-                  {scoreResult.jd_summary.task_description.map((task, i) => <li key={i}>{task}</li>)}
-                </ul>
-              </div>
-              <div>
-                <h4 className="text-lg font-semibold text-white">Candidate Requirements</h4>
-                <ul className="mt-2 list-disc list-inside text-slate-300">
-                  {scoreResult.jd_summary.candidate_requirements.map((req, i) => <li key={i}>{req}</li>)}
-                </ul>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <section className="mt-8 glass rounded-3xl p-6 card-border">
-          <div className="flex items-center justify-between gap-2 mb-4">
+      {uploadPromptDismissed && !hasUploadedCv && (
+        <section className="glass rounded-3xl p-6 card-border">
+          <div className="flex flex-wrap gap-3 items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Improved PDF Preview</p>
-              <h3 className="text-2xl font-semibold text-white">See the upgraded CV</h3>
+              <h2 className="text-2xl font-semibold text-white">Manual CV section editor</h2>
+              <p className="mt-1 text-slate-300 text-sm">
+                Add section blocks yourself or upload a CV any time.
+              </p>
             </div>
-            {!pdfUrl && (
-              <span className="text-xs text-slate-400">{fallbackPdfMessage}</span>
-            )}
+            <div className="flex gap-3">
+              <input id="secondary-cv-upload" type="file" accept="application/pdf" className="hidden" onChange={handleBrowse} />
+              <label
+                htmlFor="secondary-cv-upload"
+                className="cursor-pointer rounded-xl border border-white/20 px-4 py-2.5 text-sm text-slate-200"
+              >
+                Upload CV instead
+              </label>
+              <button
+                type="button"
+                onClick={createStarterSections}
+                className="rounded-xl border border-teal/30 bg-teal/10 px-4 py-2.5 text-sm text-teal"
+              >
+                Add starter sections
+              </button>
+            </div>
           </div>
 
-          <div className="aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-            {pdfUrl ? (
-              <object data={pdfUrl} type="application/pdf" className="h-full w-full" aria-label="Improved CV PDF" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-slate-400 text-sm text-center px-6">
-                {fallbackPdfMessage}
-              </div>
+          {processingUpload && (
+            <p className="mt-4 text-sm text-teal">Processing CV and extracting sections with AI...</p>
+          )}
+        </section>
+      )}
+
+      <section className="glass rounded-3xl p-6 card-border">
+        <div className="flex flex-wrap gap-3 items-center justify-between">
+          <h2 className="text-2xl font-semibold text-white">CV Sections</h2>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={saveSections}
+              disabled={savingSections}
+              className="rounded-xl bg-teal px-4 py-2.5 text-sm text-ink font-semibold uppercase tracking-[0.06em] disabled:opacity-60"
+            >
+              {savingSections ? 'Saving...' : 'Save sections'}
+            </button>
+            {hasUploadedCv && (
+              <button
+                type="button"
+                onClick={resetUploadedCv}
+                className="rounded-xl border border-white/20 px-4 py-2.5 text-sm text-slate-200"
+              >
+                Clear uploaded CV state
+              </button>
             )}
           </div>
-        </section>
+        </div>
 
-        <section className="mt-6 flex flex-wrap gap-3 text-sm text-slate-300">
-          <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">Drag-and-drop enabled</span>
-          <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">Tailwind + Vite + React</span>
-          <span className="rounded-full bg-white/5 px-3 py-2 border border-white/10">Base64 payload sent as cv_content</span>
-        </section>
-      </div>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <input
+            value={newSectionName}
+            onChange={(event) => setNewSectionName(event.target.value)}
+            placeholder="New section name (e.g. volunteer experience)"
+            className="w-full md:w-80 rounded-xl bg-white/5 border border-white/15 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-teal/60"
+          />
+          <button
+            type="button"
+            onClick={addSection}
+            className="rounded-xl border border-white/20 px-4 py-2.5 text-sm text-slate-200"
+          >
+            Add section
+          </button>
+        </div>
+
+        {sectionEntries.length === 0 ? (
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 text-slate-300">
+            No sections yet. Upload a CV to auto-generate sections or add one manually.
+          </div>
+        ) : (
+          <div className="mt-6 grid grid-cols-1 gap-4">
+            {sectionEntries.map(([sectionKey, sectionContent]) => (
+              <article key={sectionKey} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-white">{sectionLabelFromKey(sectionKey)}</h3>
+                  <button
+                    type="button"
+                    onClick={() => removeSection(sectionKey)}
+                    className="rounded-lg border border-red-400/40 px-3 py-1.5 text-xs text-red-200"
+                  >
+                    Remove section
+                  </button>
+                </div>
+
+                <textarea
+                  value={sectionContent}
+                  onChange={(event) => setSectionValue(sectionKey, event.target.value)}
+                  className="mt-3 w-full min-h-36 rounded-xl bg-black/20 border border-white/15 px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal/60"
+                  placeholder="Add section details..."
+                />
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

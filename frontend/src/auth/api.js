@@ -1,17 +1,24 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const inferredApiBaseUrl = `${window.location.protocol}//${window.location.hostname}:8000`;
+
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || inferredApiBaseUrl;
 
 export async function apiRequest(path, options = {}) {
   const { method = 'GET', body, headers = {} } = options;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    credentials: 'include',
-    headers: {
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...headers,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      credentials: 'include',
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    throw new Error(`Could not reach backend at ${API_BASE_URL}. Check that the API server is running.`);
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
