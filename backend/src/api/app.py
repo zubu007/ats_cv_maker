@@ -11,6 +11,8 @@ import logging
 import os
 from dotenv import load_dotenv
 
+from .auth_routes import auth_router
+from .db import init_db
 from .routes import router
 from .models import HealthResponse
 
@@ -48,6 +50,13 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Include API routes
 app.include_router(router)
+app.include_router(auth_router)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize required database tables on startup."""
+    init_db()
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
