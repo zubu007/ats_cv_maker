@@ -22,12 +22,16 @@ class LaTeXCVGenerator:
         Returns:
             LaTeX code as string
         """
+        parsed_name, parsed_email, parsed_phone, parsed_location = LaTeXCVGenerator._parse_personal_data(
+            sections.personal_info
+        )
+
         # Extract name from personal info if not provided
         if not name:
-            lines = sections.personal_info.strip().split('\n')
-            name = lines[0] if lines else "Your Name"
+            name = parsed_name or "Your Name"
         
-        latex_code = r"""\documentclass[11pt,a4paper,sans]{moderncv}
+        latex_code = r"""\PassOptionsToPackage{expansion=false}{microtype}
+\documentclass[11pt,a4paper,sans]{moderncv}
 
 % Modern CV style and color
 \moderncvstyle{banking}
@@ -35,31 +39,36 @@ class LaTeXCVGenerator:
 
 % Character encoding
 \usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
 
 % Adjust page margins
 \usepackage[scale=0.85]{geometry}
-\setlength{\hintscolumnwidth}{3cm}
+\setlength{\hintscolumnwidth}{4cm}
+\setlength{\emergencystretch}{2em}
 
 % Reduce spacing
 \usepackage{enumitem}
 \setlist{noitemsep,topsep=2pt,parsep=2pt,partopsep=2pt}
 
-% Personal data
-""" + LaTeXCVGenerator._generate_personal_data(sections.personal_info) + r"""
-
+""" + LaTeXCVGenerator._generate_moderncv_metadata(
+            name=name,
+            email=parsed_email,
+            phone=parsed_phone,
+            location=parsed_location,
+        ) + r"""
 \begin{document}
 
-\makecvtitle
-
-"""
+""" + LaTeXCVGenerator._generate_left_aligned_header(
+            name=name,
+            email=parsed_email,
+            phone=parsed_phone,
+            location=parsed_location,
+        ) + "\n"
         
         # Add Professional Summary
         if sections.professional_summary:
             latex_code += LaTeXCVGenerator._generate_summary_section(sections.professional_summary)
-        
-        # Add Skills
-        if sections.skills:
-            latex_code += LaTeXCVGenerator._generate_skills_section(sections.skills)
         
         # Add Work Experience
         if sections.work_experience:
@@ -76,6 +85,14 @@ class LaTeXCVGenerator:
         # Add Certifications
         if sections.certifications:
             latex_code += LaTeXCVGenerator._generate_certifications_section(sections.certifications)
+
+        # Skills should appear near the end
+        if sections.skills:
+            latex_code += LaTeXCVGenerator._generate_skills_section(sections.skills)
+
+        # Additional section appears after skills
+        if sections.additional:
+            latex_code += LaTeXCVGenerator._generate_additional_section(sections.additional)
         
         latex_code += r"""
 \end{document}
@@ -84,10 +101,9 @@ class LaTeXCVGenerator:
         return latex_code
     
     @staticmethod
-    def _generate_personal_data(personal_info: str) -> str:
-        """Extract and format personal data from personal_info section."""
+    def _parse_personal_data(personal_info: str) -> tuple[str, str, str, str]:
+        """Extract personal data from personal_info section."""
         lines = personal_info.strip().split('\n')
-        
         name = lines[0] if len(lines) > 0 else "Your Name"
         
         # Extract email, phone, location
@@ -105,17 +121,54 @@ class LaTeXCVGenerator:
                 phone = phone.replace('Phone:', '').strip()
             elif 'location' in line_lower or 'address' in line_lower:
                 location = line.split(':')[-1].strip() if ':' in line else line.strip()
-        
-        latex = f"\\name{{{name.split()[0] if name else 'First'}}}{{{' '.join(name.split()[1:]) if len(name.split()) > 1 else 'Last'}}}\n"
-        
+
+        return name.strip(), email.strip(), phone.strip(), location.strip()
+
+    @staticmethod
+    def _generate_left_aligned_header(name: str, email: str, phone: str, location: str) -> str:
+        """
+        Build a left-aligned header so name/personal data are not centered.
+        Keeps full name in one style/color.
+        """
+        safe_name = LaTeXCVGenerator._escape_latex(name or "Your Name")
+        contact_parts = []
         if email:
-            latex += f"\\email{{{email}}}\n"
+            contact_parts.append(LaTeXCVGenerator._escape_latex(email))
         if phone:
-            latex += f"\\phone[mobile]{{{phone}}}\n"
+            contact_parts.append(LaTeXCVGenerator._escape_latex(phone))
         if location:
-            latex += f"\\address{{{location}}}\n"
-        
+            contact_parts.append(LaTeXCVGenerator._escape_latex(location))
+
+        latex = f"{{\\Huge\\bfseries\\textcolor{{black}}{{{safe_name}}}}}\n\n"
+
+        if contact_parts:
+            latex += " \\enspace|\\enspace ".join(contact_parts) + "\n\n"
+
+        latex += "\\vspace{0.6em}\n"
         return latex
+
+    @staticmethod
+    def _generate_moderncv_metadata(name: str, email: str, phone: str, location: str) -> str:
+        """
+        Define moderncv metadata macros to prevent class-level undefined-command warnings.
+        We still render a custom left-aligned header manually.
+        """
+        parts = (name or "").split()
+        first_name = parts[0] if parts else "First"
+        last_name = " ".join(parts[1:]) if len(parts) > 1 else "Last"
+
+        metadata_lines = [
+            f"\\name{{{LaTeXCVGenerator._escape_latex(first_name)}}}{{{LaTeXCVGenerator._escape_latex(last_name)}}}",
+        ]
+
+        if email:
+            metadata_lines.append(f"\\email{{{LaTeXCVGenerator._escape_latex(email)}}}")
+        if phone:
+            metadata_lines.append(f"\\phone[mobile]{{{LaTeXCVGenerator._escape_latex(phone)}}}")
+        if location:
+            metadata_lines.append(f"\\address{{{LaTeXCVGenerator._escape_latex(location)}}}")
+
+        return "\n".join(metadata_lines) + "\n"
     
     @staticmethod
     def _generate_summary_section(summary: str) -> str:
@@ -147,10 +200,21 @@ class LaTeXCVGenerator:
                     items = parts[1].strip()
                     latex += f"\\cvitem{{{category}}}{{{items}}}\n"
                 else:
-                    latex += f"\\cvitem{{}}{{• {line.strip()}}}\n"
+                    latex += f"\\cvitem{{}}{{\\textbullet{{}} {line.strip()}}}\n"
         
         latex += "\n"
         return latex
+
+    @staticmethod
+    def _generate_additional_section(additional: str) -> str:
+        """Generate additional section."""
+        additional_clean = LaTeXCVGenerator._escape_latex(additional.strip())
+        if not additional_clean:
+            return ""
+        return f"""\\section{{Additional}}
+{additional_clean}
+
+"""
     
     @staticmethod
     def _generate_experience_section(experience: str) -> str:
@@ -258,7 +322,7 @@ class LaTeXCVGenerator:
             institution = parts[0].strip()
             dates = parts[1].strip() if len(parts) > 1 else dates
         
-        return f"\\cventry{{{dates}}}{{{degree}}}{{{institution}}}{{}}{{}}{{}}\\n"
+        return f"\\cventry{{{dates}}}{{{degree}}}{{{institution}}}{{}}{{}}{{}}\n"
     
     @staticmethod
     def _generate_projects_section(projects: str) -> str:
@@ -274,11 +338,12 @@ class LaTeXCVGenerator:
                     project_text = line.strip().lstrip('-•').strip()
                     if ':' in project_text:
                         parts = project_text.split(':', 1)
-                        latex += f"\\cvitem{{{parts[0].strip()}}}{{{parts[1].strip()}}}\n"
+                        details = parts[1].strip().replace('\n', '\\\\ ')
+                        latex += f"\\cvitem{{{parts[0].strip()}}}{{\\newline {details}}}\n"
                     else:
-                        latex += f"\\cvitem{{}}{{• {project_text}}}\n"
+                        latex += f"\\cvitem{{}}{{\\textbullet{{}} \\newline {project_text}}}\n"
                 else:
-                    latex += f"\\cvitem{{}}{{• {line.strip()}}}\n"
+                    latex += f"\\cvitem{{}}{{\\textbullet{{}} \\newline {line.strip()}}}\n"
         
         latex += "\n"
         return latex
@@ -294,7 +359,7 @@ class LaTeXCVGenerator:
         for line in lines:
             if line.strip():
                 cert_text = line.strip().lstrip('-•').strip()
-                latex += f"\\cvitem{{}}{{• {cert_text}}}\n"
+                latex += f"\\cvitem{{}}{{\\textbullet{{}} {cert_text}}}\n"
         
         latex += "\n"
         return latex
@@ -302,8 +367,8 @@ class LaTeXCVGenerator:
     @staticmethod
     def _escape_latex(text: str) -> str:
         """Escape special LaTeX characters."""
-        # Common LaTeX special characters
         replacements = {
+            '\\': r'\char`\\',
             '&': r'\&',
             '%': r'\%',
             '$': r'\$',
@@ -312,14 +377,10 @@ class LaTeXCVGenerator:
             '{': r'\{',
             '}': r'\}',
             '~': r'\textasciitilde{}',
-            '^': r'\^{}',
-            '\\': r'\textbackslash{}',
+            '^': r'\textasciicircum{}',
+            '•': r'\textbullet{}',
         }
-        
-        for char, replacement in replacements.items():
-            text = text.replace(char, replacement)
-        
-        return text
+        return "".join(replacements.get(char, char) for char in text)
     
     @staticmethod
     def save_latex(latex_code: str, output_path: str = "improved_cv.tex"):

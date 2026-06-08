@@ -122,3 +122,61 @@ class CVWorkspaceResponse(BaseModel):
     cv_file_name: str | None = None
     sections: CVWorkspaceSections
     updated_at: datetime | None = None
+
+
+class JDKeywordAnalysisRequest(BaseModel):
+    job_description: str = Field(..., min_length=20, max_length=50000)
+
+
+class JDKeywordAnalysisResponse(BaseModel):
+    keywords: list[str] = Field(default_factory=list)
+    keywords_csv: str = Field(default="")
+    company_name: str = Field(default="", max_length=255)
+    position: str = Field(default="", max_length=255)
+
+
+class CVEnhanceGenerateRequest(BaseModel):
+    job_description: str = Field(..., min_length=20, max_length=50000)
+    keywords: list[str] = Field(default_factory=list, max_length=200)
+
+
+class CVEnhanceGenerateResponse(BaseModel):
+    keywords_used: list[str] = Field(default_factory=list)
+    merged_skills_overview: str = Field(default="")
+    pdf_base64: str = Field(..., min_length=20)
+    pdf_file_name: str = Field(default="enhanced_cv.pdf")
+
+
+class UserJobItemBase(BaseModel):
+    application_date: str = Field(default="", max_length=10)
+    company_name: str = Field(default="", max_length=255)
+    position: str = Field(default="", max_length=255)
+    status: str = Field(default="Applied", max_length=40)
+    sort_order: int = Field(default=0, ge=0)
+
+
+class UserJobItemUpdate(UserJobItemBase):
+    id: int | None = None
+
+
+class UserJobItemCreateRequest(BaseModel):
+    company_name: str = Field(default="", max_length=255)
+    position: str = Field(default="", max_length=255)
+    application_date: str | None = Field(default=None, max_length=10)
+    status: str = Field(default="Applied", max_length=40)
+
+
+class UserJobListUpdateRequest(BaseModel):
+    items: list[UserJobItemUpdate] = Field(default_factory=list)
+
+
+class UserJobItemResponse(UserJobItemBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserJobListResponse(BaseModel):
+    items: list[UserJobItemResponse] = Field(default_factory=list)

@@ -27,6 +27,10 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    job_items: Mapped[list["UserJobItem"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     cv_workspace: Mapped["UserCvWorkspace | None"] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -90,3 +94,24 @@ class UserCvWorkspace(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="cv_workspace")
+
+
+class UserJobItem(Base):
+    __tablename__ = "user_job_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    application_date: Mapped[str] = mapped_column(String(10), nullable=False, default="")
+    company_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    position: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="Applied")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="job_items")

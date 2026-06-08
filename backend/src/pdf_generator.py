@@ -83,15 +83,18 @@ class PDFGenerator:
                     ['pdflatex', '-interaction=nonstopmode', tex_file_name],
                     capture_output=True,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     timeout=60
                 )
-                
+
                 if result.returncode != 0:
                     # Try to extract error message
                     error_msg = "LaTeX compilation failed."
-                    if result.stdout:
+                    compilation_output = f"{result.stdout or ''}\n{result.stderr or ''}"
+                    if compilation_output:
                         # Look for error lines
-                        for line in result.stdout.split('\n'):
+                        for line in compilation_output.split('\n'):
                             if line.startswith('!'):
                                 error_msg = line
                                 break
@@ -116,9 +119,9 @@ class PDFGenerator:
         except Exception as e:
             # Save error log
             log_file = out_dir / 'latex_error.log'
-            if 'result' in locals() and result.stdout:
-                with open(log_file, 'w') as f:
-                    f.write(result.stdout)
+            if 'result' in locals():
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.write(f"{result.stdout or ''}\n{result.stderr or ''}")
             raise
         finally:
             os.chdir(original_dir)

@@ -8,6 +8,7 @@ import './index.css';
 import AuthPage from './pages/AuthPage';
 import CoverLetter from './pages/CoverLetter';
 import MyDataPage from './pages/MyDataPage';
+import MyJobsPage from './pages/MyJobsPage';
 
 const router = createBrowserRouter([
   {
@@ -35,6 +36,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <MyDataPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/my-jobs',
+    element: (
+      <ProtectedRoute>
+        <MyJobsPage />
       </ProtectedRoute>
     ),
   },

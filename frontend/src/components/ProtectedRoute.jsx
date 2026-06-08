@@ -77,6 +77,12 @@ export default function ProtectedRoute({ children }) {
             >
               My Data
             </Link>
+            <Link
+              to="/my-jobs"
+              className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/50"
+            >
+              My Jobs
+            </Link>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-300">
             <span className="hidden sm:inline">{user.first_name || user.email}</span>
