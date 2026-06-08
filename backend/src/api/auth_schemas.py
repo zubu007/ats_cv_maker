@@ -65,12 +65,60 @@ class CVUploadRequest(BaseModel):
     file_name: str = Field(default="uploaded_cv.pdf", min_length=1, max_length=255)
 
 
+class CVWorkspacePersonalInfo(BaseModel):
+    name: str = Field(default="", max_length=200)
+    phone: str = Field(default="", max_length=80)
+    email: str = Field(default="", max_length=255)
+    location: str = Field(default="", max_length=255)
+
+
+class CVWorkspaceWorkExperienceEntry(BaseModel):
+    company_name: str = Field(default="", max_length=255)
+    location: str = Field(default="", max_length=255)
+    role: str = Field(default="", max_length=255)
+    start_date: str = Field(default="", max_length=80)
+    end_date: str = Field(default="", max_length=80)
+    currently_working: bool = False
+    overview: str = Field(default="", max_length=20000)
+
+
+class CVWorkspaceEducationEntry(BaseModel):
+    institution_name: str = Field(default="", max_length=255)
+    location: str = Field(default="", max_length=255)
+    degree: str = Field(default="", max_length=255)
+    start_date: str = Field(default="", max_length=80)
+    end_date: str = Field(default="", max_length=80)
+    currently_studying: bool = False
+    overview: str = Field(default="", max_length=20000)
+
+
+class CVWorkspaceProjectEntry(BaseModel):
+    project_name: str = Field(default="", max_length=255)
+    details: str = Field(default="", max_length=20000)
+
+
+class CVWorkspaceCertificationEntry(BaseModel):
+    certification_name: str = Field(default="", max_length=255)
+    details: str = Field(default="", max_length=20000)
+
+
+class CVWorkspaceSections(BaseModel):
+    personal_info: CVWorkspacePersonalInfo = Field(default_factory=CVWorkspacePersonalInfo)
+    professional_summary_overview: str = Field(default="", max_length=20000)
+    skills_overview: str = Field(default="", max_length=20000)
+    work_experience: list[CVWorkspaceWorkExperienceEntry] = Field(default_factory=list)
+    education: list[CVWorkspaceEducationEntry] = Field(default_factory=list)
+    projects: list[CVWorkspaceProjectEntry] = Field(default_factory=list)
+    certifications: list[CVWorkspaceCertificationEntry] = Field(default_factory=list)
+    additional_overview: str = Field(default="", max_length=20000)
+
+
 class CVWorkspaceUpdateRequest(BaseModel):
-    sections: dict[str, str]
+    sections: CVWorkspaceSections
 
 
 class CVWorkspaceResponse(BaseModel):
     has_uploaded_cv: bool
     cv_file_name: str | None = None
-    sections: dict[str, str]
+    sections: CVWorkspaceSections
     updated_at: datetime | None = None

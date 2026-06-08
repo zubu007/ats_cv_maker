@@ -11,6 +11,7 @@ import os
 import secrets
 import tempfile
 from datetime import datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -21,8 +22,14 @@ from ..cv_section_parser import CVSectionParser
 from .auth_schemas import (
     AuthResponse,
     CVUploadRequest,
+    CVWorkspaceCertificationEntry,
+    CVWorkspaceEducationEntry,
+    CVWorkspacePersonalInfo,
+    CVWorkspaceProjectEntry,
     CVWorkspaceResponse,
+    CVWorkspaceSections,
     CVWorkspaceUpdateRequest,
+    CVWorkspaceWorkExperienceEntry,
     LoginRequest,
     MessageResponse,
     SignupRequest,
@@ -146,38 +153,227 @@ def _get_workspace(db: Session, user_id: int) -> UserCvWorkspace | None:
     return db.execute(query).scalar_one_or_none()
 
 
-def _serialize_sections(raw_json: str | None) -> dict[str, str]:
-    if not raw_json:
-        return {}
-
-    try:
-        data = json.loads(raw_json)
-        if not isinstance(data, dict):
-            return {}
-        return {
-            str(section_name): str(section_content or "")
-            for section_name, section_content in data.items()
-            if str(section_name).strip()
-        }
-    except json.JSONDecodeError:
-        return {}
+def _split_blocks(text: str) -> list[str]:
+    return [block.strip() for block in (text or "").split("\n\n") if block.strip()]
 
 
-def _normalize_section_name(name: str) -> str:
-    return "_".join(name.strip().lower().split())
+def _normalize_personal_info(raw: Any) -> CVWorkspacePersonalInfo:
+    if isinstance(raw, CVWorkspacePersonalInfo):
+        return raw
+
+    if isinstance(raw, str):
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        name = lines[0] if lines else ""
+        return CVWorkspacePersonalInfo(name=name)
+
+    if isinstance(raw, dict):
+        return CVWorkspacePersonalInfo(
+            name=str(raw.get("name", "") or "").strip(),
+            phone=str(raw.get("phone", "") or "").strip(),
+            email=str(raw.get("email", "") or "").strip(),
+            location=str(raw.get("location", "") or "").strip(),
+        )
+
+    return CVWorkspacePersonalInfo()
 
 
-def _sanitize_sections(sections: dict[str, str]) -> dict[str, str]:
-    cleaned_sections: dict[str, str] = {}
+def _normalize_work_experience_entries(raw: Any) -> list[CVWorkspaceWorkExperienceEntry]:
+    if isinstance(raw, list):
+        normalized: list[CVWorkspaceWorkExperienceEntry] = []
+        for item in raw:
+            if isinstance(item, dict):
+                if "title" in item and "content" in item:
+                    normalized.append(
+                        CVWorkspaceWorkExperienceEntry(
+                            company_name=str(item.get("title", "") or "").strip(),
+                            overview=str(item.get("content", "") or "").strip(),
+                        )
+                    )
+                else:
+                    normalized.append(
+                        CVWorkspaceWorkExperienceEntry(
+                            company_name=str(item.get("company_name", "") or "").strip(),
+                            location=str(item.get("location", "") or "").strip(),
+                            role=str(item.get("role", "") or "").strip(),
+                            start_date=str(item.get("start_date", "") or "").strip(),
+                            end_date=str(item.get("end_date", "") or "").strip(),
+                            currently_working=bool(item.get("currently_working", False)),
+                            overview=str(item.get("overview", item.get("details", "")) or "").strip(),
+                        )
+                    )
+        return [entry for entry in normalized if any(entry.model_dump().values())]
 
-    for section_name, section_content in sections.items():
-        normalized_name = _normalize_section_name(section_name)
-        if not normalized_name:
-            continue
+    if isinstance(raw, dict):
+        return _normalize_work_experience_entries(raw.get("entries", []))
 
-        cleaned_sections[normalized_name] = (section_content or "").strip()
+    if isinstance(raw, str):
+        entries: list[CVWorkspaceWorkExperienceEntry] = []
+        for block in _split_blocks(raw):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            entries.append(
+                CVWorkspaceWorkExperienceEntry(
+                    company_name=lines[0],
+                    role=lines[1] if len(lines) > 1 else "",
+                    overview="\n".join(lines[2:]).strip() if len(lines) > 2 else "\n".join(lines[1:]).strip(),
+                    currently_working="present" in block.lower() or "current" in block.lower(),
+                )
+            )
+        return entries
 
-    return cleaned_sections
+    return []
+
+
+def _normalize_education_entries(raw: Any) -> list[CVWorkspaceEducationEntry]:
+    if isinstance(raw, list):
+        normalized: list[CVWorkspaceEducationEntry] = []
+        for item in raw:
+            if isinstance(item, dict):
+                if "title" in item and "content" in item:
+                    normalized.append(
+                        CVWorkspaceEducationEntry(
+                            institution_name=str(item.get("title", "") or "").strip(),
+                            overview=str(item.get("content", "") or "").strip(),
+                        )
+                    )
+                else:
+                    normalized.append(
+                        CVWorkspaceEducationEntry(
+                            institution_name=str(item.get("institution_name", item.get("school", "")) or "").strip(),
+                            location=str(item.get("location", "") or "").strip(),
+                            degree=str(item.get("degree", "") or "").strip(),
+                            start_date=str(item.get("start_date", "") or "").strip(),
+                            end_date=str(item.get("end_date", "") or "").strip(),
+                            currently_studying=bool(item.get("currently_studying", False)),
+                            overview=str(item.get("overview", item.get("details", "")) or "").strip(),
+                        )
+                    )
+        return [entry for entry in normalized if any(entry.model_dump().values())]
+
+    if isinstance(raw, dict):
+        return _normalize_education_entries(raw.get("entries", []))
+
+    if isinstance(raw, str):
+        entries: list[CVWorkspaceEducationEntry] = []
+        for block in _split_blocks(raw):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            entries.append(
+                CVWorkspaceEducationEntry(
+                    institution_name=lines[0],
+                    degree=lines[1] if len(lines) > 1 else "",
+                    overview="\n".join(lines[2:]).strip() if len(lines) > 2 else "\n".join(lines[1:]).strip(),
+                    currently_studying="present" in block.lower() or "current" in block.lower(),
+                )
+            )
+        return entries
+
+    return []
+
+
+def _normalize_project_entries(raw: Any) -> list[CVWorkspaceProjectEntry]:
+    if isinstance(raw, list):
+        normalized: list[CVWorkspaceProjectEntry] = []
+        for item in raw:
+            if isinstance(item, dict):
+                if "title" in item and "content" in item:
+                    normalized.append(
+                        CVWorkspaceProjectEntry(
+                            project_name=str(item.get("title", "") or "").strip(),
+                            details=str(item.get("content", "") or "").strip(),
+                        )
+                    )
+                else:
+                    normalized.append(
+                        CVWorkspaceProjectEntry(
+                            project_name=str(item.get("project_name", item.get("name", "")) or "").strip(),
+                            details=str(item.get("details", item.get("overview", "")) or "").strip(),
+                        )
+                    )
+        return [entry for entry in normalized if entry.project_name or entry.details]
+
+    if isinstance(raw, dict):
+        return _normalize_project_entries(raw.get("entries", []))
+
+    if isinstance(raw, str):
+        entries: list[CVWorkspaceProjectEntry] = []
+        for block in _split_blocks(raw):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            entries.append(
+                CVWorkspaceProjectEntry(
+                    project_name=lines[0],
+                    details="\n".join(lines[1:]).strip() if len(lines) > 1 else block,
+                )
+            )
+        return entries
+
+    return []
+
+
+def _normalize_certification_entries(raw: Any) -> list[CVWorkspaceCertificationEntry]:
+    if isinstance(raw, list):
+        normalized: list[CVWorkspaceCertificationEntry] = []
+        for item in raw:
+            if isinstance(item, dict):
+                if "title" in item and "content" in item:
+                    normalized.append(
+                        CVWorkspaceCertificationEntry(
+                            certification_name=str(item.get("title", "") or "").strip(),
+                            details=str(item.get("content", "") or "").strip(),
+                        )
+                    )
+                else:
+                    normalized.append(
+                        CVWorkspaceCertificationEntry(
+                            certification_name=str(item.get("certification_name", item.get("name", "")) or "").strip(),
+                            details=str(item.get("details", item.get("overview", "")) or "").strip(),
+                        )
+                    )
+        return [entry for entry in normalized if entry.certification_name or entry.details]
+
+    if isinstance(raw, dict):
+        return _normalize_certification_entries(raw.get("entries", []))
+
+    if isinstance(raw, str):
+        entries: list[CVWorkspaceCertificationEntry] = []
+        for block in _split_blocks(raw):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            entries.append(
+                CVWorkspaceCertificationEntry(
+                    certification_name=lines[0],
+                    details="\n".join(lines[1:]).strip() if len(lines) > 1 else "",
+                )
+            )
+        return entries
+
+    return []
+
+
+def _normalize_sections(raw_sections: Any) -> CVWorkspaceSections:
+    if isinstance(raw_sections, CVWorkspaceSections):
+        return raw_sections
+
+    if not isinstance(raw_sections, dict):
+        return CVWorkspaceSections()
+
+    return CVWorkspaceSections(
+        personal_info=_normalize_personal_info(raw_sections.get("personal_info")),
+        professional_summary_overview=str(
+            raw_sections.get("professional_summary_overview", raw_sections.get("professional_summary", "")) or ""
+        ).strip(),
+        skills_overview=str(raw_sections.get("skills_overview", raw_sections.get("skills", "")) or "").strip(),
+        work_experience=_normalize_work_experience_entries(raw_sections.get("work_experience", [])),
+        education=_normalize_education_entries(raw_sections.get("education", [])),
+        projects=_normalize_project_entries(raw_sections.get("projects", [])),
+        certifications=_normalize_certification_entries(raw_sections.get("certifications", [])),
+        additional_overview=str(raw_sections.get("additional_overview", raw_sections.get("additional", "")) or "").strip(),
+    )
 
 
 def _workspace_response(workspace: UserCvWorkspace | None) -> CVWorkspaceResponse:
@@ -185,14 +381,21 @@ def _workspace_response(workspace: UserCvWorkspace | None) -> CVWorkspaceRespons
         return CVWorkspaceResponse(
             has_uploaded_cv=False,
             cv_file_name=None,
-            sections={},
+            sections=CVWorkspaceSections(),
             updated_at=None,
         )
+
+    try:
+        raw_sections = json.loads(workspace.sections_json or "{}")
+    except json.JSONDecodeError:
+        raw_sections = {}
+
+    normalized_sections = _normalize_sections(raw_sections)
 
     return CVWorkspaceResponse(
         has_uploaded_cv=workspace.has_uploaded_cv,
         cv_file_name=workspace.cv_file_name,
-        sections=_serialize_sections(workspace.sections_json),
+        sections=normalized_sections,
         updated_at=workspace.updated_at,
     )
 
@@ -327,18 +530,13 @@ def upload_cv_and_extract_sections(
         cv_text = CVExtractor.extract_from_pdf(temp_pdf_path)
 
         parser = CVSectionParser()
-        parsed_sections = parser.parse_cv(cv_text)
-        extracted_sections = {
-            section_name: section_content.strip()
-            for section_name, section_content in parsed_sections.model_dump().items()
-            if isinstance(section_content, str) and section_content.strip()
-        }
+        parsed_sections = parser.parse_cv_for_workspace(cv_text)
 
         workspace = _upsert_workspace(db, current_user.id)
         workspace.cv_file_name = payload.file_name.strip()
         workspace.cv_text = cv_text
         workspace.has_uploaded_cv = True
-        workspace.sections_json = json.dumps(extracted_sections)
+        workspace.sections_json = json.dumps(parsed_sections.model_dump())
 
         db.commit()
         db.refresh(workspace)
@@ -362,10 +560,10 @@ def update_cv_workspace_sections(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    sections = _sanitize_sections(payload.sections)
+    normalized_sections = _normalize_sections(payload.sections.model_dump())
 
     workspace = _upsert_workspace(db, current_user.id)
-    workspace.sections_json = json.dumps(sections)
+    workspace.sections_json = json.dumps(normalized_sections.model_dump())
 
     db.commit()
     db.refresh(workspace)
@@ -382,7 +580,7 @@ def reset_cv_workspace(
     workspace.cv_file_name = None
     workspace.cv_text = None
     workspace.has_uploaded_cv = False
-    workspace.sections_json = "{}"
+    workspace.sections_json = json.dumps(CVWorkspaceSections().model_dump())
 
     db.commit()
     db.refresh(workspace)
