@@ -1,6 +1,6 @@
 """
 PDF Generator
-Compiles LaTeX to PDF using pdflatex.
+Compiles LaTeX to PDF (prefers xelatex for Arial/system fonts).
 """
 
 import subprocess
@@ -11,16 +11,25 @@ from pathlib import Path
 
 class PDFGenerator:
     """Generates PDF from LaTeX files."""
+
+    @staticmethod
+    def _select_latex_engine() -> str | None:
+        """Pick the best available LaTeX engine for CV rendering."""
+        if shutil.which('xelatex') is not None:
+            return 'xelatex'
+        if shutil.which('pdflatex') is not None:
+            return 'pdflatex'
+        return None
     
     @staticmethod
     def check_latex_installed() -> bool:
         """
-        Check if pdflatex is installed on the system.
+        Check if a supported LaTeX engine is installed on the system.
         
         Returns:
-            True if pdflatex is available
+            True if xelatex or pdflatex is available
         """
-        return shutil.which('pdflatex') is not None
+        return PDFGenerator._select_latex_engine() is not None
     
     @staticmethod
     def compile_latex_to_pdf(
@@ -42,9 +51,10 @@ class PDFGenerator:
         Raises:
             Exception if compilation fails
         """
-        if not PDFGenerator.check_latex_installed():
+        engine = PDFGenerator._select_latex_engine()
+        if not engine:
             raise Exception(
-                "pdflatex not found. Please install LaTeX:\n"
+                "No LaTeX engine found (xelatex/pdflatex). Please install LaTeX:\n"
                 "  macOS: brew install --cask mactex-no-gui\n"
                 "  Ubuntu: sudo apt-get install texlive-latex-base texlive-latex-extra\n"
                 "  Windows: Install MiKTeX from https://miktex.org/"
@@ -74,13 +84,13 @@ class PDFGenerator:
             else:
                 tex_file_name = tex_path.name
             
-            print(f"🔨 Compiling LaTeX to PDF...")
+            print(f"🔨 Compiling LaTeX to PDF with {engine}...")
             
-            # Run pdflatex twice (for references and table of contents)
+            # Run LaTeX twice (for references and layout stabilization)
             for run in [1, 2]:
                 print(f"   Run {run}/2...")
                 result = subprocess.run(
-                    ['pdflatex', '-interaction=nonstopmode', tex_file_name],
+                    [engine, '-interaction=nonstopmode', tex_file_name],
                     capture_output=True,
                     text=True,
                     encoding='utf-8',
@@ -169,10 +179,11 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         # Check if LaTeX is installed
         if PDFGenerator.check_latex_installed():
-            print("✅ pdflatex is installed and available")
+            selected = PDFGenerator._select_latex_engine()
+            print(f"✅ LaTeX engine available: {selected}")
             print("\nUsage: python pdf_generator.py <tex_file> [output_dir]")
         else:
-            print("❌ pdflatex is not installed")
+            print("❌ No supported LaTeX engine is installed (xelatex/pdflatex)")
             print("\nTo install LaTeX:")
             print("  macOS: brew install --cask mactex-no-gui")
             print("  Ubuntu: sudo apt-get install texlive-latex-base texlive-latex-extra")

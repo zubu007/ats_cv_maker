@@ -443,6 +443,18 @@ def _normalize_job_status(raw_status: str | None) -> str:
     return status_value
 
 
+def _safe_filename_stem(raw_value: str, fallback: str) -> str:
+    """Return a filesystem-safe stem using letters, digits, and underscores."""
+    collapsed = "".join(char if char.isalnum() else "_" for char in str(raw_value or "").strip())
+    normalized = "_".join(part for part in collapsed.split("_") if part)
+    return normalized or fallback
+
+
+def _cv_pdf_filename_for_user(user: User) -> str:
+    first_name_stem = _safe_filename_stem(user.first_name, "candidate")
+    return f"{first_name_stem}_cv.pdf"
+
+
 def _job_item_response(item: UserJobItem) -> UserJobItemResponse:
     return UserJobItemResponse.model_validate(item)
 
@@ -859,7 +871,7 @@ def generate_enhanced_cv_pdf(
         keywords_used=keywords,
         merged_skills_overview=normalized_sections.skills_overview,
         pdf_base64=pdf_base64,
-        pdf_file_name="enhanced_cv.pdf",
+        pdf_file_name=_cv_pdf_filename_for_user(current_user),
     )
 
 
@@ -894,6 +906,8 @@ def generate_cover_letter_from_workspace(
         result = generator.generate_from_text(
             cv_text=cv_text,
             job_description=payload.job_description,
+            company_name=payload.company_name,
+            position=payload.position,
         )
     except Exception as exc:
         raise HTTPException(

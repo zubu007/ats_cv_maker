@@ -149,6 +149,8 @@ class CVEnhanceGenerateResponse(BaseModel):
 
 class CoverLetterGenerateRequest(BaseModel):
     job_description: str = Field(..., min_length=20, max_length=50000)
+    company_name: str = Field(default="", max_length=255)
+    position: str = Field(default="", max_length=255)
 
 
 class CoverLetterGenerateResponse(BaseModel):

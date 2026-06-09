@@ -32,13 +32,21 @@ class CoverLetterGenerator:
         else:
             raise ValueError(f"Unsupported AI provider: {self.provider}")
 
-    def generate(self, cv_content: str, job_description: str) -> dict:
+    def generate(
+        self,
+        cv_content: str,
+        job_description: str,
+        company_name: str = "",
+        position: str = "",
+    ) -> dict:
         """
         Generates a cover letter.
 
         Args:
             cv_content: The base64 encoded CV content.
             job_description: The job description text.
+            company_name: Optional company override from UI.
+            position: Optional position/title override from UI.
 
         Returns:
             A dictionary containing the cover letter text and the PDF as a base64 string.
@@ -51,13 +59,29 @@ class CoverLetterGenerator:
         cv_text = cv_extractor.extract_from_pdf(temp_cv_path)
         os.remove(temp_cv_path)
 
-        return self.generate_from_text(cv_text=cv_text, job_description=job_description)
+        return self.generate_from_text(
+            cv_text=cv_text,
+            job_description=job_description,
+            company_name=company_name,
+            position=position,
+        )
 
-    def generate_from_text(self, cv_text: str, job_description: str) -> dict:
+    def generate_from_text(
+        self,
+        cv_text: str,
+        job_description: str,
+        company_name: str = "",
+        position: str = "",
+    ) -> dict:
         """
         Generates a cover letter from plain CV text and job description.
         """
-        cover_letter_text = self._generate_cover_letter_text(cv_text=cv_text, job_description=job_description)
+        cover_letter_text = self._generate_cover_letter_text(
+            cv_text=cv_text,
+            job_description=job_description,
+            company_name=company_name,
+            position=position,
+        )
         pdf_base64 = self._generate_pdf(cover_letter_text)
 
         return {
@@ -65,13 +89,25 @@ class CoverLetterGenerator:
             "cover_letter_pdf": pdf_base64,
         }
 
-    def _generate_cover_letter_text(self, cv_text: str, job_description: str) -> str:
+    def _generate_cover_letter_text(
+        self,
+        cv_text: str,
+        job_description: str,
+        company_name: str = "",
+        position: str = "",
+    ) -> str:
         """Generate cover letter text using the configured LLM provider."""
 
         keyword_extractor = KeywordExtractor(use_spacy=False)
         jd_keywords = keyword_extractor.extract_keywords(job_description, max_keywords=15)
 
-        prompt = self._create_prompt(cv_text, job_description, jd_keywords)
+        prompt = self._create_prompt(
+            cv_text=cv_text,
+            job_description=job_description,
+            jd_keywords=jd_keywords,
+            company_name=company_name,
+            position=position,
+        )
 
         if self.provider == 'openai':
             cover_letter_text = self._call_openai(prompt)
@@ -80,19 +116,44 @@ class CoverLetterGenerator:
 
         return cover_letter_text
 
-    def _create_prompt(self, cv_text: str, job_description: str, jd_keywords: List[str]) -> str:
+    def _create_prompt(
+        self,
+        cv_text: str,
+        job_description: str,
+        jd_keywords: List[str],
+        company_name: str = "",
+        position: str = "",
+    ) -> str:
+        company = str(company_name or "").strip()
+        role = str(position or "").strip()
+        target_context_lines: list[str] = []
+        if company:
+            target_context_lines.append(f"- Company Name: {company}")
+        if role:
+            target_context_lines.append(f"- Position Name: {role}")
+
+        provided_target_context = (
+            "\n".join(target_context_lines)
+            if target_context_lines
+            else "- No explicit company/position overrides provided by the user."
+        )
+
         return f"""
         Based on the following CV and job description, write a complete, professional, and personalized cover letter.
 
         CRITICAL REQUIREMENTS:
         1. Extract the candidate's ACTUAL NAME, contact information, and details from the CV provided below
         2. Use the REAL information from the CV - DO NOT use placeholders like [Your Name], [Company Name], [Position], etc.
-        3. If you cannot find specific information in the CV (like company name or hiring manager), simply omit that detail rather than using a placeholder
-        4. Write a complete, ready-to-send cover letter with proper salutation and closing
-        5. The letter should be enthusiastic and highlight the candidate's most relevant skills and experiences that match the job description
-        6. Naturally incorporate the provided keywords throughout the letter
-        7. Use a professional but personable tone
-        8. Structure: introduction paragraph, 2-3 body paragraphs highlighting relevant experience, and conclusion paragraph
+        3. If explicit company/position values are provided below, treat them as the source of truth and use those exact values
+        4. If you cannot find specific information in the CV (like hiring manager), simply omit that detail rather than using a placeholder
+        5. Write a complete, ready-to-send cover letter with proper salutation and closing
+        6. The letter should be enthusiastic and highlight the candidate's most relevant skills and experiences that match the job description
+        7. Naturally incorporate the provided keywords throughout the letter
+        8. Use a professional but personable tone
+        9. Structure: introduction paragraph, 2-3 body paragraphs highlighting relevant experience, and conclusion paragraph
+
+        User-provided target details:
+        {provided_target_context}
 
         CV Details:
         ---

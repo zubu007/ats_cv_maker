@@ -38,15 +38,24 @@ class LaTeXCVGenerator:
 \moderncvstyle{banking}
 \moderncvcolor{blue}
 
-% Character encoding
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern}
+% Font setup (prefer true Arial when supported)
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T1]{fontenc}
+  \IfFileExists{uarial.sty}{\usepackage[scaled]{uarial}}{\usepackage[scaled]{helvet}}
+  \renewcommand{\familydefault}{\sfdefault}
+\else
+  \usepackage{fontspec}
+  \setmainfont{Arial}
+  \setsansfont{Arial}
+\fi
 
 % Adjust page margins
-\usepackage[scale=0.85]{geometry}
+\usepackage[top=22.275mm,left=15.75mm,right=15.75mm,bottom=1.323mm]{geometry}
 \setlength{\hintscolumnwidth}{4cm}
 \setlength{\emergencystretch}{2em}
+\nopagenumbers{}
 
 % Reduce spacing
 \usepackage{enumitem}

@@ -1,9 +1,46 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { apiRequest } from './auth/api';
 
 const HOME_STATE_STORAGE_KEY = 'ats_cv_home_state_v2';
+const KEYWORD_SPLIT_PATTERN = /[,;\n]/;
+
+function normalizeKeyword(keyword) {
+  return String(keyword || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeKeywords(list) {
+  const seen = new Set();
+  const normalized = [];
+
+  for (const keyword of list || []) {
+    const cleaned = normalizeKeyword(keyword);
+    if (!cleaned) {
+      continue;
+    }
+
+    const normalizedKey = cleaned.toLowerCase();
+    if (seen.has(normalizedKey)) {
+      continue;
+    }
+
+    seen.add(normalizedKey);
+    normalized.push(cleaned);
+  }
+
+  return normalized;
+}
+
+function parseKeywordsFromText(value) {
+  if (!String(value || '').trim()) {
+    return [];
+  }
+
+  return normalizeKeywords(String(value).split(KEYWORD_SPLIT_PATTERN));
+}
 
 function loadPersistedHomeState() {
   try {
@@ -23,7 +60,7 @@ function loadPersistedHomeState() {
     const parsed = JSON.parse(rawValue);
     return {
       job_description: String(parsed.job_description || ''),
-      keywords: Array.isArray(parsed.keywords) ? parsed.keywords.map((entry) => String(entry || '')) : [],
+      keywords: normalizeKeywords(parsed.keywords),
       company_name: String(parsed.company_name || ''),
       position: String(parsed.position || ''),
       has_generated_cv: Boolean(parsed.has_generated_cv),
@@ -61,6 +98,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [jobDescription, setJobDescription] = useState(initialState.job_description);
   const [keywords, setKeywords] = useState(initialState.keywords);
+  const [keywordDraft, setKeywordDraft] = useState('');
   const [companyName, setCompanyName] = useState(initialState.company_name);
   const [position, setPosition] = useState(initialState.position);
   const [hasGeneratedCv, setHasGeneratedCv] = useState(initialState.has_generated_cv);
@@ -134,7 +172,88 @@ export default function App() {
     };
   }, [pdfUrl, coverLetterPdfUrl]);
 
-  const keywordsCsv = useMemo(() => keywords.join(', '), [keywords]);
+  const addKeywords = (newKeywords) => {
+    const parsedKeywords = normalizeKeywords(newKeywords);
+    if (!parsedKeywords.length) {
+      return;
+    }
+
+    setKeywords((previous) => normalizeKeywords([...previous, ...parsedKeywords]));
+  };
+
+  const commitKeywordDraft = () => {
+    const parsedKeywords = parseKeywordsFromText(keywordDraft);
+    if (!parsedKeywords.length) {
+      setKeywordDraft((previous) => normalizeKeyword(previous));
+      return [];
+    }
+
+    addKeywords(parsedKeywords);
+    setKeywordDraft('');
+    return parsedKeywords;
+  };
+
+  const removeKeyword = (indexToRemove) => {
+    setKeywords((previous) => previous.filter((_, index) => index !== indexToRemove));
+  };
+
+  const handleKeywordInputChange = (event) => {
+    const value = event.target.value;
+
+    if (!value.includes(',')) {
+      setKeywordDraft(value);
+      return;
+    }
+
+    const parts = value.split(',');
+    const completedParts = parts.slice(0, -1);
+    const trailingPart = parts.at(-1) || '';
+    const parsedKeywords = parseKeywordsFromText(completedParts.join(','));
+
+    if (parsedKeywords.length) {
+      addKeywords(parsedKeywords);
+    }
+
+    setKeywordDraft(trailingPart);
+  };
+
+  const handleKeywordInputKeyDown = (event) => {
+    if (event.key === ',' || event.key === 'Enter') {
+      event.preventDefault();
+      commitKeywordDraft();
+      return;
+    }
+
+    if (event.key === 'Backspace' && !keywordDraft.trim() && keywords.length > 0) {
+      event.preventDefault();
+      removeKeyword(keywords.length - 1);
+    }
+  };
+
+  const handleKeywordInputPaste = (event) => {
+    const pastedText = event.clipboardData.getData('text');
+    if (!KEYWORD_SPLIT_PATTERN.test(pastedText)) {
+      return;
+    }
+
+    event.preventDefault();
+    const parsedKeywords = parseKeywordsFromText(pastedText);
+    if (parsedKeywords.length) {
+      addKeywords(parsedKeywords);
+    }
+  };
+
+  const getPreparedKeywords = () => {
+    const parsedDraft = parseKeywordsFromText(keywordDraft);
+    if (!parsedDraft.length) {
+      return keywords;
+    }
+
+    const mergedKeywords = normalizeKeywords([...keywords, ...parsedDraft]);
+    setKeywords(mergedKeywords);
+    setKeywordDraft('');
+    return mergedKeywords;
+  };
 
   const analyzeJobDescription = async () => {
     if (!jobDescription.trim()) {
@@ -153,7 +272,8 @@ export default function App() {
         body: { job_description: jobDescription },
       });
 
-      setKeywords(Array.isArray(response?.keywords) ? response.keywords : []);
+      setKeywords(normalizeKeywords(response?.keywords));
+      setKeywordDraft('');
       setCompanyName(String(response?.company_name || ''));
       setPosition(String(response?.position || ''));
       setStatus('JD analysis complete.');
@@ -171,6 +291,8 @@ export default function App() {
       return;
     }
 
+    const preparedKeywords = getPreparedKeywords();
+
     setGenerating(true);
     setError('');
     setJobAddMessage('');
@@ -181,12 +303,15 @@ export default function App() {
         method: 'POST',
         body: {
           job_description: jobDescription,
-          keywords,
+          keywords: preparedKeywords,
         },
       });
 
-      const nextKeywords = Array.isArray(response?.keywords_used) ? response.keywords_used : keywords;
+      const nextKeywords = normalizeKeywords(
+        Array.isArray(response?.keywords_used) ? response.keywords_used : preparedKeywords,
+      );
       setKeywords(nextKeywords);
+      setKeywordDraft('');
 
       if (pdfUrl) {
         URL.revokeObjectURL(pdfUrl);
@@ -194,7 +319,7 @@ export default function App() {
 
       const nextPdfUrl = base64ToBlobUrl(response?.pdf_base64 || '');
       setPdfUrl(nextPdfUrl);
-      setPdfFileName(response?.pdf_file_name || 'enhanced_cv.pdf');
+      setPdfFileName(response?.pdf_file_name || `${user?.first_name || 'candidate'}_cv.pdf`);
       setHasGeneratedCv(true);
       setStatus('CV generated. Download is ready.');
     } catch (err) {
@@ -218,7 +343,11 @@ export default function App() {
     try {
       const response = await apiRequest('/api/v1/cv/enhance/generate-cover-letter', {
         method: 'POST',
-        body: { job_description: jobDescription },
+        body: {
+          job_description: jobDescription,
+          company_name: companyName,
+          position,
+        },
       });
 
       if (coverLetterPdfUrl) {
@@ -301,16 +430,33 @@ export default function App() {
           </button>
         </div>
 
-        {(companyName || position) && (
-          <div className="rounded-2xl border border-white/15 bg-white/5 p-4 text-sm text-slate-200">
-            <p>
-              <span className="text-slate-400">Company:</span> {companyName || 'Not found in JD'}
-            </p>
-            <p className="mt-1">
-              <span className="text-slate-400">Position:</span> {position || 'Not found in JD'}
-            </p>
+        <div className="rounded-2xl border border-white/15 bg-white/5 p-4 text-sm text-slate-200 space-y-3">
+          <p className="text-xs uppercase tracking-[0.08em] text-slate-400">
+            Detected values (editable before generating)
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="space-y-1.5">
+              <span className="text-xs uppercase tracking-[0.08em] text-slate-400">Company</span>
+              <input
+                type="text"
+                value={companyName}
+                onChange={(event) => setCompanyName(event.target.value)}
+                placeholder="Company name"
+                className="w-full rounded-xl bg-black/20 border border-white/15 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-teal/60"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-xs uppercase tracking-[0.08em] text-slate-400">Position</span>
+              <input
+                type="text"
+                value={position}
+                onChange={(event) => setPosition(event.target.value)}
+                placeholder="Job title / position"
+                className="w-full rounded-xl bg-black/20 border border-white/15 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-teal/60"
+              />
+            </label>
           </div>
-        )}
+        </div>
 
         {status && <p className="text-sm text-teal">{status}</p>}
         {error && (
@@ -322,9 +468,37 @@ export default function App() {
 
       <section className="glass rounded-3xl p-6 card-border space-y-4">
         <h2 className="text-2xl font-semibold text-white">Relevant Keywords</h2>
-        <p className="text-sm text-slate-300">
-          {keywords.length > 0 ? keywordsCsv : 'No keywords yet. Run analysis first.'}
-        </p>
+        <div className="rounded-2xl border border-white/15 bg-black/20 px-3 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {keywords.map((keyword, index) => (
+              <span
+                key={`${keyword}-${index}`}
+                className="inline-flex items-center gap-2 rounded-full bg-teal/20 border border-teal/30 px-3 py-1 text-sm text-teal"
+              >
+                <span>{keyword}</span>
+                <button
+                  type="button"
+                  onClick={() => removeKeyword(index)}
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-teal/80 hover:bg-teal/20 hover:text-white"
+                  aria-label={`Remove ${keyword}`}
+                >
+                  x
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              value={keywordDraft}
+              onChange={handleKeywordInputChange}
+              onKeyDown={handleKeywordInputKeyDown}
+              onPaste={handleKeywordInputPaste}
+              onBlur={commitKeywordDraft}
+              placeholder={keywords.length ? 'Add keyword, then press comma' : 'Type keywords, press comma to add'}
+              className="min-w-[220px] flex-1 bg-transparent py-1 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">Use comma (or Enter) to turn text into keyword tags.</p>
 
         <div className="flex flex-wrap gap-3">
           <button

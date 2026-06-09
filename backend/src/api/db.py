@@ -31,16 +31,23 @@ def _create_engine(database_url: str):
 
 DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
+
+def _switch_to_fallback_database(reason: str) -> None:
+    """Switch runtime DB engine/session to sqlite fallback."""
+    global DATABASE_URL, engine, SessionLocal
+    logger.warning("%s Falling back to sqlite database at %s.", reason, FALLBACK_DATABASE_URL)
+    DATABASE_URL = FALLBACK_DATABASE_URL
+    engine = _create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
 try:
     engine = _create_engine(DATABASE_URL)
 except ModuleNotFoundError as exc:
     # Allow local development to continue even if the PostgreSQL driver is missing.
-    logger.warning(
-        "Database driver for DATABASE_URL is unavailable (%s). Falling back to sqlite.",
-        exc,
+    _switch_to_fallback_database(
+        f"Database driver for DATABASE_URL is unavailable ({exc})."
     )
-    DATABASE_URL = FALLBACK_DATABASE_URL
-    engine = _create_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 Base = declarative_base()
@@ -59,9 +66,20 @@ def init_db() -> None:
     """Create all configured tables if they do not already exist."""
     from . import db_models  # pylint: disable=unused-import
 
-    _ensure_postgres_database_exists()
-    _apply_safe_migrations()
-    Base.metadata.create_all(bind=engine)
+    try:
+        _ensure_postgres_database_exists()
+        _apply_safe_migrations()
+        Base.metadata.create_all(bind=engine)
+    except (RuntimeError, SQLAlchemyError) as exc:
+        if DATABASE_URL.startswith("postgresql"):
+            _switch_to_fallback_database(
+                "Could not initialize PostgreSQL database "
+                f"({type(exc).__name__}: {exc})."
+            )
+            _apply_safe_migrations()
+            Base.metadata.create_all(bind=engine)
+            return
+        raise
 
 
 def _apply_safe_migrations() -> None:
