@@ -836,11 +836,11 @@ def generate_enhanced_cv_pdf(
         )
 
     merged_skills = merge_unique_skills(normalized_sections.skills_overview, keywords)
-    normalized_sections.skills_overview = join_skills_csv(merged_skills)
+    merged_skills_overview = join_skills_csv(merged_skills)
 
-    workspace.sections_json = json.dumps(normalized_sections.model_dump())
-    db.commit()
-    db.refresh(workspace)
+    # Keep My Data unchanged (original uploaded skills). Only merge in-memory for this generated CV.
+    generation_sections = normalized_sections.model_copy(deep=True)
+    generation_sections.skills_overview = merged_skills_overview
 
     if not PDFGenerator.check_latex_installed():
         raise HTTPException(
@@ -848,7 +848,7 @@ def generate_enhanced_cv_pdf(
             detail="pdflatex is not installed. Install LaTeX to generate PDF output.",
         )
 
-    improved_sections = _workspace_sections_to_improved_sections(normalized_sections)
+    improved_sections = _workspace_sections_to_improved_sections(generation_sections)
 
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -869,7 +869,7 @@ def generate_enhanced_cv_pdf(
 
     return CVEnhanceGenerateResponse(
         keywords_used=keywords,
-        merged_skills_overview=normalized_sections.skills_overview,
+        merged_skills_overview=merged_skills_overview,
         pdf_base64=pdf_base64,
         pdf_file_name=_cv_pdf_filename_for_user(current_user),
     )

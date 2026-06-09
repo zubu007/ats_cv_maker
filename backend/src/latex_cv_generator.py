@@ -4,6 +4,7 @@ Generates a professional single-column, 1-page A4 CV in LaTeX format.
 """
 
 import re
+import unicodedata
 from typing import Optional
 from .keyword_placement_agent import ImprovedCVSections
 
@@ -442,6 +443,9 @@ class LaTeXCVGenerator:
     @staticmethod
     def _escape_latex(text: str) -> str:
         """Escape special LaTeX characters."""
+        # Normalize compatibility glyphs (e.g., 'ﬄ' -> 'ffl') for reliable font rendering.
+        normalized_text = unicodedata.normalize("NFKC", str(text or ""))
+
         replacements = {
             '\\': r'\char`\\',
             '&': r'\&',
@@ -455,7 +459,7 @@ class LaTeXCVGenerator:
             '^': r'\textasciicircum{}',
             '•': r'\textbullet{}',
         }
-        return "".join(replacements.get(char, char) for char in text)
+        return "".join(replacements.get(char, char) for char in normalized_text)
 
     @staticmethod
     def _escape_latex_with_urls(text: str) -> str:
