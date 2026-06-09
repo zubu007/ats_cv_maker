@@ -40,12 +40,15 @@ class SkillExtractor:
         """Initialize the skill extractor."""
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
         self.model_name = os.getenv('AI_MODEL', 'gpt-4-turbo')
+        self.openai_api_key = os.getenv('FAU_API_KEY') or os.getenv('OPENAI_API_KEY')
+        self.openai_base_url = os.getenv('OPENAI_BASE_URL', 'https://hub.nhr.fau.de/api/llmgw/v1')
         
         if self.provider == 'openai':
             self.llm = ChatOpenAI(
                 model=self.model_name,
                 temperature=0.2,
-                api_key=os.getenv('OPENAI_API_KEY')
+                api_key=self.openai_api_key,
+                openai_api_base=self.openai_base_url
             )
         elif self.provider == 'anthropic':
             self.llm = ChatAnthropic(

@@ -22,10 +22,12 @@ class CoverLetterGenerator:
     def __init__(self):
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
         self.model = os.getenv('AI_MODEL', 'gpt-4o-mini')
+        self.openai_api_key = os.getenv('FAU_API_KEY') or os.getenv('OPENAI_API_KEY')
+        self.openai_base_url = os.getenv('OPENAI_BASE_URL', 'https://hub.nhr.fau.de/api/llmgw/v1')
         
         if self.provider == 'openai':
             from openai import OpenAI
-            self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            self.client = OpenAI(api_key=self.openai_api_key, base_url=self.openai_base_url)
         elif self.provider == 'anthropic':
             from anthropic import Anthropic
             self.client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
@@ -151,6 +153,7 @@ class CoverLetterGenerator:
         7. Naturally incorporate the provided keywords throughout the letter
         8. Use a professional but personable tone
         9. Structure: introduction paragraph, 2-3 body paragraphs highlighting relevant experience, and conclusion paragraph
+        10. Generate a concise subject line for the cover letter email. E.g. "Application for Software Engineer Position - John Doe"
 
         User-provided target details:
         {provided_target_context}
@@ -168,7 +171,11 @@ class CoverLetterGenerator:
         Keywords to naturally incorporate:
         - {", ".join(jd_keywords)}
 
-        Generate ONLY the cover letter text with NO placeholders. The letter should be immediately usable without any edits needed.
+        Generate the output in the following format:
+        
+        Subject: [Write the subject line here]
+        
+        [Then provide the complete cover letter text with NO placeholders. The letter should be immediately usable without any edits needed.]
         """
 
     def _call_openai(self, prompt: str) -> str:

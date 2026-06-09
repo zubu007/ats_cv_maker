@@ -14,10 +14,12 @@ class JDSummarizer:
     def __init__(self):
         self.provider = os.getenv('AI_PROVIDER', 'openai').lower()
         self.model = os.getenv('AI_MODEL', 'gpt-4o-mini')
+        self.openai_api_key = os.getenv('FAU_API_KEY') or os.getenv('OPENAI_API_KEY')
+        self.openai_base_url = os.getenv('OPENAI_BASE_URL', 'https://hub.nhr.fau.de/api/llmgw/v1')
         
         if self.provider == 'openai':
             from openai import OpenAI
-            self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            self.client = OpenAI(api_key=self.openai_api_key, base_url=self.openai_base_url)
         elif self.provider == 'anthropic':
             from anthropic import Anthropic
             self.client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))

@@ -31,10 +31,11 @@ class KeywordRatingAgent:
         """Initialize OpenAI client."""
         try:
             from openai import OpenAI
-            api_key = os.getenv('OPENAI_API_KEY')
+            api_key = os.getenv('FAU_API_KEY') or os.getenv('OPENAI_API_KEY')
+            base_url = os.getenv('OPENAI_BASE_URL', 'https://hub.nhr.fau.de/api/llmgw/v1')
             if not api_key:
-                raise ValueError("OPENAI_API_KEY not found in environment variables")
-            self.client = OpenAI(api_key=api_key)
+                raise ValueError("Neither FAU_API_KEY nor OPENAI_API_KEY found in environment variables")
+            self.client = OpenAI(api_key=api_key, base_url=base_url)
         except ImportError:
             raise ImportError("OpenAI package not installed. Run: pip install openai")
     

@@ -16,7 +16,8 @@ class Config:
     # AI Provider Settings
     AI_PROVIDER = os.getenv('AI_PROVIDER', 'openai').lower()
     AI_MODEL = os.getenv('AI_MODEL', 'gpt-4o-mini')  # Using mini for cost and speed
-    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    OPENAI_API_KEY = os.getenv('FAU_API_KEY') or os.getenv('OPENAI_API_KEY')
+    OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://hub.nhr.fau.de/api/llmgw/v1')
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
     
     # Keyword Extraction Settings
@@ -55,7 +56,7 @@ class Config:
         
         # Validate API keys
         if cls.AI_PROVIDER == 'openai' and not cls.OPENAI_API_KEY:
-            errors.append("OPENAI_API_KEY not set but AI_PROVIDER is 'openai'")
+            errors.append("Neither FAU_API_KEY nor OPENAI_API_KEY is set but AI_PROVIDER is 'openai'")
         
         if cls.AI_PROVIDER == 'anthropic' and not cls.ANTHROPIC_API_KEY:
             errors.append("ANTHROPIC_API_KEY not set but AI_PROVIDER is 'anthropic'")

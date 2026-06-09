@@ -29,7 +29,8 @@ class Settings(BaseSettings):
     api_version: str = "1.0.0"
     
     # LLM Configuration
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_api_key: str = os.getenv("FAU_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+    openai_base_url: str = os.getenv("OPENAI_BASE_URL", "https://hub.nhr.fau.de/api/llmgw/v1")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     
     class Config:
