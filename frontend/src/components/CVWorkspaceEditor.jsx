@@ -403,9 +403,6 @@ export default function CVWorkspaceEditor() {
         </p>
 
         <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-300">
-          <Link to="/cover-letter" className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/60">
-            Cover Letter
-          </Link>
           <Link to="/my-jobs" className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/60">
             My Jobs
           </Link>

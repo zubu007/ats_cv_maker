@@ -6,7 +6,6 @@ import App from './App';
 import ProtectedRoute from './components/ProtectedRoute';
 import './index.css';
 import AuthPage from './pages/AuthPage';
-import CoverLetter from './pages/CoverLetter';
 import MyDataPage from './pages/MyDataPage';
 import MyJobsPage from './pages/MyJobsPage';
 
@@ -20,14 +19,6 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <App />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/cover-letter',
-    element: (
-      <ProtectedRoute>
-        <CoverLetter />
       </ProtectedRoute>
     ),
   },

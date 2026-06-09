@@ -3,7 +3,45 @@ import { Link } from 'react-router-dom';
 
 import { apiRequest } from './auth/api';
 
-const HOME_STATE_STORAGE_KEY = 'ats_cv_home_state_v1';
+const HOME_STATE_STORAGE_KEY = 'ats_cv_home_state_v2';
+
+function loadPersistedHomeState() {
+  try {
+    const rawValue = sessionStorage.getItem(HOME_STATE_STORAGE_KEY);
+    if (!rawValue) {
+      return {
+        job_description: '',
+        keywords: [],
+        company_name: '',
+        position: '',
+        has_generated_cv: false,
+        has_generated_cover_letter: false,
+        cover_letter_text: '',
+      };
+    }
+
+    const parsed = JSON.parse(rawValue);
+    return {
+      job_description: String(parsed.job_description || ''),
+      keywords: Array.isArray(parsed.keywords) ? parsed.keywords.map((entry) => String(entry || '')) : [],
+      company_name: String(parsed.company_name || ''),
+      position: String(parsed.position || ''),
+      has_generated_cv: Boolean(parsed.has_generated_cv),
+      has_generated_cover_letter: Boolean(parsed.has_generated_cover_letter),
+      cover_letter_text: String(parsed.cover_letter_text || ''),
+    };
+  } catch {
+    return {
+      job_description: '',
+      keywords: [],
+      company_name: '',
+      position: '',
+      has_generated_cv: false,
+      has_generated_cover_letter: false,
+      cover_letter_text: '',
+    };
+  }
+}
 
 function base64ToBlobUrl(base64, mimeType = 'application/pdf') {
   const binary = atob(String(base64 || ''));
@@ -18,15 +56,20 @@ function base64ToBlobUrl(base64, mimeType = 'application/pdf') {
 }
 
 export default function App() {
+  const initialState = loadPersistedHomeState();
+
   const [user, setUser] = useState(null);
-  const [jobDescription, setJobDescription] = useState('');
-  const [keywords, setKeywords] = useState([]);
-  const [companyName, setCompanyName] = useState('');
-  const [position, setPosition] = useState('');
-  const [hasGeneratedCv, setHasGeneratedCv] = useState(false);
+  const [jobDescription, setJobDescription] = useState(initialState.job_description);
+  const [keywords, setKeywords] = useState(initialState.keywords);
+  const [companyName, setCompanyName] = useState(initialState.company_name);
+  const [position, setPosition] = useState(initialState.position);
+  const [hasGeneratedCv, setHasGeneratedCv] = useState(initialState.has_generated_cv);
+  const [hasGeneratedCoverLetter, setHasGeneratedCoverLetter] = useState(initialState.has_generated_cover_letter);
+  const [coverLetterText, setCoverLetterText] = useState(initialState.cover_letter_text);
 
   const [analyzing, setAnalyzing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingCoverLetter, setGeneratingCoverLetter] = useState(false);
   const [addingToJobs, setAddingToJobs] = useState(false);
 
   const [error, setError] = useState('');
@@ -35,24 +78,8 @@ export default function App() {
 
   const [pdfUrl, setPdfUrl] = useState('');
   const [pdfFileName, setPdfFileName] = useState('enhanced_cv.pdf');
-
-  useEffect(() => {
-    try {
-      const rawValue = sessionStorage.getItem(HOME_STATE_STORAGE_KEY);
-      if (!rawValue) {
-        return;
-      }
-
-      const parsed = JSON.parse(rawValue);
-      setJobDescription(String(parsed.job_description || ''));
-      setKeywords(Array.isArray(parsed.keywords) ? parsed.keywords.map((entry) => String(entry || '')) : []);
-      setCompanyName(String(parsed.company_name || ''));
-      setPosition(String(parsed.position || ''));
-      setHasGeneratedCv(Boolean(parsed.has_generated_cv));
-    } catch {
-      // Ignore invalid persisted state and continue with defaults.
-    }
-  }, []);
+  const [coverLetterPdfUrl, setCoverLetterPdfUrl] = useState('');
+  const [coverLetterPdfFileName, setCoverLetterPdfFileName] = useState('cover_letter.pdf');
 
   useEffect(() => {
     let mounted = true;
@@ -78,14 +105,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (pdfUrl) {
-        URL.revokeObjectURL(pdfUrl);
-      }
-    };
-  }, [pdfUrl]);
-
-  useEffect(() => {
     try {
       sessionStorage.setItem(
         HOME_STATE_STORAGE_KEY,
@@ -95,12 +114,25 @@ export default function App() {
           company_name: companyName,
           position,
           has_generated_cv: hasGeneratedCv,
+          has_generated_cover_letter: hasGeneratedCoverLetter,
+          cover_letter_text: coverLetterText,
         }),
       );
     } catch {
       // Ignore storage failures.
     }
-  }, [jobDescription, keywords, companyName, position, hasGeneratedCv]);
+  }, [jobDescription, keywords, companyName, position, hasGeneratedCv, hasGeneratedCoverLetter, coverLetterText]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl);
+      }
+      if (coverLetterPdfUrl) {
+        URL.revokeObjectURL(coverLetterPdfUrl);
+      }
+    };
+  }, [pdfUrl, coverLetterPdfUrl]);
 
   const keywordsCsv = useMemo(() => keywords.join(', '), [keywords]);
 
@@ -113,8 +145,6 @@ export default function App() {
     setAnalyzing(true);
     setError('');
     setJobAddMessage('');
-    setHasGeneratedCv(false);
-    setPdfUrl('');
     setStatus('Analyzing job description and extracting company, position, and relevant skills...');
 
     try {
@@ -175,6 +205,40 @@ export default function App() {
     }
   };
 
+  const generateCoverLetter = async () => {
+    if (!jobDescription.trim()) {
+      setError('Please paste a job description first.');
+      return;
+    }
+
+    setGeneratingCoverLetter(true);
+    setError('');
+    setStatus('Generating cover letter from your My Data profile and job description...');
+
+    try {
+      const response = await apiRequest('/api/v1/cv/enhance/generate-cover-letter', {
+        method: 'POST',
+        body: { job_description: jobDescription },
+      });
+
+      if (coverLetterPdfUrl) {
+        URL.revokeObjectURL(coverLetterPdfUrl);
+      }
+
+      const nextPdfUrl = base64ToBlobUrl(response?.pdf_base64 || '');
+      setCoverLetterPdfUrl(nextPdfUrl);
+      setCoverLetterPdfFileName(response?.pdf_file_name || 'cover_letter.pdf');
+      setCoverLetterText(String(response?.cover_letter_text || ''));
+      setHasGeneratedCoverLetter(true);
+      setStatus('Cover letter generated. Download is ready.');
+    } catch (err) {
+      setError(err.message || 'Could not generate cover letter.');
+      setStatus('');
+    } finally {
+      setGeneratingCoverLetter(false);
+    }
+  };
+
   const addToMyJobs = async () => {
     setAddingToJobs(true);
     setError('');
@@ -205,7 +269,7 @@ export default function App() {
           Welcome, {user?.first_name || 'there'}
         </h1>
         <p className="mt-2 text-slate-300">
-          Paste the job description, analyze key terms, then generate a refreshed PDF CV.
+          Paste the job description, analyze key terms, then generate a refreshed CV and cover letter.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-300">
@@ -214,9 +278,6 @@ export default function App() {
           </Link>
           <Link to="/my-jobs" className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/60">
             My Jobs
-          </Link>
-          <Link to="/cover-letter" className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/60">
-            Cover Letter
           </Link>
         </div>
       </header>
@@ -233,7 +294,7 @@ export default function App() {
           <button
             type="button"
             onClick={analyzeJobDescription}
-            disabled={analyzing || generating || addingToJobs}
+            disabled={analyzing || generating || generatingCoverLetter || addingToJobs}
             className="rounded-xl bg-teal px-4 py-3 text-ink text-sm font-semibold uppercase tracking-[0.06em] disabled:opacity-60"
           >
             {analyzing ? 'Analyzing...' : 'Analyze JD'}
@@ -265,14 +326,24 @@ export default function App() {
           {keywords.length > 0 ? keywordsCsv : 'No keywords yet. Run analysis first.'}
         </p>
 
-        <button
-          type="button"
-          onClick={generateEnhancedCv}
-          disabled={generating || analyzing || addingToJobs}
-          className="rounded-xl bg-teal px-4 py-3 text-ink text-sm font-semibold uppercase tracking-[0.06em] disabled:opacity-60"
-        >
-          {generating ? 'Generating PDF...' : 'Generate Updated CV PDF'}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={generateEnhancedCv}
+            disabled={generating || analyzing || generatingCoverLetter || addingToJobs}
+            className="rounded-xl bg-teal px-4 py-3 text-ink text-sm font-semibold uppercase tracking-[0.06em] disabled:opacity-60"
+          >
+            {generating ? 'Generating CV...' : 'Generate Updated CV PDF'}
+          </button>
+          <button
+            type="button"
+            onClick={generateCoverLetter}
+            disabled={generatingCoverLetter || analyzing || generating || addingToJobs}
+            className="rounded-xl border border-white/20 px-4 py-3 text-sm text-slate-100 disabled:opacity-60"
+          >
+            {generatingCoverLetter ? 'Generating Cover Letter...' : 'Generate Cover Letter'}
+          </button>
+        </div>
 
         {pdfUrl && (
           <a
@@ -283,27 +354,26 @@ export default function App() {
             Download {pdfFileName}
           </a>
         )}
+
+        {coverLetterPdfUrl && (
+          <a
+            href={coverLetterPdfUrl}
+            download={coverLetterPdfFileName}
+            className="inline-flex rounded-xl border border-white/20 px-4 py-3 text-sm text-slate-100"
+          >
+            Download {coverLetterPdfFileName}
+          </a>
+        )}
       </section>
 
-      {pdfUrl && (
+      {hasGeneratedCoverLetter && coverLetterText && (
         <section className="glass rounded-3xl p-6 card-border space-y-4">
-          <h2 className="text-2xl font-semibold text-white">Did you apply to the job?</h2>
-          <p className="text-sm text-slate-300">
-            Add this application to My Jobs with today&apos;s date and status set to Applied.
-          </p>
-          <button
-            type="button"
-            onClick={addToMyJobs}
-            disabled={addingToJobs || analyzing || generating}
-            className="rounded-xl bg-teal px-4 py-3 text-ink text-sm font-semibold uppercase tracking-[0.06em] disabled:opacity-60"
-          >
-            {addingToJobs ? 'Adding...' : 'Add to my jobs'}
-          </button>
-          {jobAddMessage && <p className="text-sm text-teal">{jobAddMessage}</p>}
+          <h2 className="text-2xl font-semibold text-white">Cover Letter Preview</h2>
+          <p className="text-sm text-slate-200 whitespace-pre-wrap">{coverLetterText}</p>
         </section>
       )}
 
-      {hasGeneratedCv && !pdfUrl && (
+      {hasGeneratedCv && (
         <section className="glass rounded-3xl p-6 card-border space-y-4">
           <h2 className="text-2xl font-semibold text-white">Did you apply to the job?</h2>
           <p className="text-sm text-slate-300">
@@ -312,7 +382,7 @@ export default function App() {
           <button
             type="button"
             onClick={addToMyJobs}
-            disabled={addingToJobs || analyzing || generating}
+            disabled={addingToJobs || analyzing || generating || generatingCoverLetter}
             className="rounded-xl bg-teal px-4 py-3 text-ink text-sm font-semibold uppercase tracking-[0.06em] disabled:opacity-60"
           >
             {addingToJobs ? 'Adding...' : 'Add to my jobs'}

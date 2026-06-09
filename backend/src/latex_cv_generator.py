@@ -3,6 +3,7 @@ LaTeX CV Generator
 Generates a professional single-column, 1-page A4 CV in LaTeX format.
 """
 
+import re
 from typing import Optional
 from .keyword_placement_agent import ImprovedCVSections
 
@@ -312,41 +313,106 @@ class LaTeXCVGenerator:
         if not entry_lines:
             return ""
         
-        degree = entry_lines[0]
-        institution = entry_lines[1] if len(entry_lines) > 1 else ""
-        dates = entry_lines[2] if len(entry_lines) > 2 else ""
-        
-        # Try to extract dates from institution line
-        if '|' in institution:
-            parts = institution.split('|')
+        degree = entry_lines[0].strip()
+        institution_line = entry_lines[1].strip() if len(entry_lines) > 1 else ""
+        dates = ""
+        overview_lines: list[str] = []
+
+        institution = institution_line
+        if "|" in institution_line:
+            parts = institution_line.split("|", 1)
             institution = parts[0].strip()
-            dates = parts[1].strip() if len(parts) > 1 else dates
-        
-        return f"\\cventry{{{dates}}}{{{degree}}}{{{institution}}}{{}}{{}}{{}}\n"
+            dates = parts[1].strip()
+            overview_lines = [line.strip() for line in entry_lines[2:] if line.strip()]
+        else:
+            if len(entry_lines) > 2 and LaTeXCVGenerator._looks_like_date_line(entry_lines[2].strip()):
+                dates = entry_lines[2].strip()
+                overview_lines = [line.strip() for line in entry_lines[3:] if line.strip()]
+            else:
+                overview_lines = [line.strip() for line in entry_lines[2:] if line.strip()]
+
+        latex = f"\\cventry{{{dates}}}{{{degree}}}{{{institution}}}{{}}{{}}{{%\n"
+        if overview_lines:
+            latex += "\\begin{itemize}\n"
+            for line in overview_lines:
+                latex += f"  \\item {line}\n"
+            latex += "\\end{itemize}}\n"
+        else:
+            latex += "}\n"
+        return latex
     
     @staticmethod
     def _generate_projects_section(projects: str) -> str:
         """Generate projects section."""
-        projects_clean = LaTeXCVGenerator._escape_latex(projects.strip())
-        
+        projects_raw = projects.strip()
+        if not projects_raw:
+            return ""
+
         latex = "\\section{Projects}\n"
-        
-        lines = projects_clean.split('\n')
-        for line in lines:
-            if line.strip():
-                if line.strip().startswith(('-', '•')):
-                    project_text = line.strip().lstrip('-•').strip()
-                    if ':' in project_text:
-                        parts = project_text.split(':', 1)
-                        details = parts[1].strip().replace('\n', '\\\\ ')
-                        latex += f"\\cvitem{{{parts[0].strip()}}}{{\\newline {details}}}\n"
-                    else:
-                        latex += f"\\cvitem{{}}{{\\textbullet{{}} \\newline {project_text}}}\n"
-                else:
-                    latex += f"\\cvitem{{}}{{\\textbullet{{}} \\newline {line.strip()}}}\n"
-        
+
+        entries = LaTeXCVGenerator._parse_project_entries(projects_raw)
+        for title, details in entries:
+            safe_title = LaTeXCVGenerator._escape_latex(title or "Project")
+            safe_details = LaTeXCVGenerator._escape_latex_with_urls(details)
+            latex += f"\\cvitem{{{safe_title}}}{{\\newline {safe_details}}}\n"
+
         latex += "\n"
         return latex
+
+    @staticmethod
+    def _parse_project_entries(projects_raw: str) -> list[tuple[str, str]]:
+        """
+        Parse project text into (title, details) while collapsing noisy line breaks/bullets.
+        """
+        entries: list[tuple[str, str]] = []
+        current_title = ""
+        current_parts: list[str] = []
+
+        def flush_current() -> None:
+            nonlocal current_title, current_parts
+            if not current_title and not current_parts:
+                return
+            details = " | ".join(part for part in current_parts if part)
+            entries.append((current_title or "Project", details))
+            current_title = ""
+            current_parts = []
+
+        for raw_line in projects_raw.splitlines():
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            if stripped in {"•", "*", "-", "•:"}:
+                continue
+
+            starts_new = stripped.startswith("-")
+            cleaned = stripped.lstrip("-").lstrip("•").strip()
+            if not cleaned:
+                continue
+
+            if starts_new:
+                flush_current()
+                if ":" in cleaned:
+                    title, details = cleaned.split(":", 1)
+                    current_title = title.strip()
+                    if details.strip():
+                        current_parts.append(details.strip())
+                else:
+                    current_title = cleaned
+            else:
+                # Continuation line for current project details.
+                if not current_title:
+                    current_title = "Project"
+                current_parts.append(cleaned)
+
+        flush_current()
+        return entries
+
+    @staticmethod
+    def _looks_like_date_line(text: str) -> bool:
+        lowered = text.lower()
+        if any(token in lowered for token in ["present", "current", "-", "to"]):
+            return bool(re.search(r"\d{4}", text))
+        return bool(re.fullmatch(r"\d{4}", text.strip()))
     
     @staticmethod
     def _generate_certifications_section(certifications: str) -> str:
@@ -381,6 +447,59 @@ class LaTeXCVGenerator:
             '•': r'\textbullet{}',
         }
         return "".join(replacements.get(char, char) for char in text)
+
+    @staticmethod
+    def _escape_latex_with_urls(text: str) -> str:
+        """
+        Escape LaTeX text while preserving URLs with explicit line-break hints,
+        so long links can wrap without overflowing the right margin.
+        """
+        if not text:
+            return ""
+
+        url_pattern = re.compile(r"https?://\S+")
+        pieces: list[str] = []
+        cursor = 0
+
+        for match in url_pattern.finditer(text):
+            start, end = match.span()
+            raw_url = match.group(0)
+
+            prefix = text[cursor:start]
+            if prefix:
+                pieces.append(LaTeXCVGenerator._escape_latex(prefix))
+
+            trailing = ""
+            while raw_url and raw_url[-1] in ".,);:!?":
+                trailing = raw_url[-1] + trailing
+                raw_url = raw_url[:-1]
+
+            pieces.append(LaTeXCVGenerator._format_breakable_url(raw_url))
+            if trailing:
+                pieces.append(LaTeXCVGenerator._escape_latex(trailing))
+
+            cursor = end
+
+        suffix = text[cursor:]
+        if suffix:
+            pieces.append(LaTeXCVGenerator._escape_latex(suffix))
+
+        return "".join(pieces)
+
+    @staticmethod
+    def _format_breakable_url(raw_url: str) -> str:
+        """
+        Render URL text with safe LaTeX escaping and explicit break opportunities.
+        """
+        escaped = LaTeXCVGenerator._escape_latex(raw_url)
+        escaped = escaped.replace("://", "://\\allowbreak{}")
+        escaped = escaped.replace("/", "/\\allowbreak{}")
+        escaped = escaped.replace("-", "-\\allowbreak{}")
+        escaped = escaped.replace("\\_", "\\_\\allowbreak{}")
+        escaped = escaped.replace("?", "?\\allowbreak{}")
+        escaped = escaped.replace("=", "=\\allowbreak{}")
+        escaped = escaped.replace("\\&", "\\&\\allowbreak{}")
+        return escaped
     
     @staticmethod
     def save_latex(latex_code: str, output_path: str = "improved_cv.tex"):

@@ -147,6 +147,16 @@ class CVEnhanceGenerateResponse(BaseModel):
     pdf_file_name: str = Field(default="enhanced_cv.pdf")
 
 
+class CoverLetterGenerateRequest(BaseModel):
+    job_description: str = Field(..., min_length=20, max_length=50000)
+
+
+class CoverLetterGenerateResponse(BaseModel):
+    cover_letter_text: str = Field(default="")
+    pdf_base64: str = Field(..., min_length=20)
+    pdf_file_name: str = Field(default="cover_letter.pdf")
+
+
 class UserJobItemBase(BaseModel):
     application_date: str = Field(default="", max_length=10)
     company_name: str = Field(default="", max_length=255)

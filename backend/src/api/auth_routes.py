@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..cv_extractor import CVExtractor
 from ..cv_section_parser import CVSectionParser
+from ..cover_letter_generator import CoverLetterGenerator
 from ..keyword_extractor import KeywordExtractor
 from ..keyword_placement_agent import ImprovedCVSections
 from ..keyword_rating_agent import KeywordRatingAgent
@@ -28,6 +29,8 @@ from ..skill_extractor import SkillExtractor
 from ..skill_merge import join_skills_csv, merge_unique_skills
 from .auth_schemas import (
     AuthResponse,
+    CoverLetterGenerateRequest,
+    CoverLetterGenerateResponse,
     CVEnhanceGenerateRequest,
     CVEnhanceGenerateResponse,
     CVUploadRequest,
@@ -561,6 +564,96 @@ def _workspace_sections_to_improved_sections(sections: CVWorkspaceSections) -> I
     )
 
 
+def _workspace_sections_to_plain_text(sections: CVWorkspaceSections) -> str:
+    """
+    Flatten structured workspace fields into plain CV text for prompts.
+    """
+    lines: list[str] = []
+
+    if sections.personal_info.name.strip():
+        lines.append(f"Name: {sections.personal_info.name.strip()}")
+    if sections.personal_info.email.strip():
+        lines.append(f"Email: {sections.personal_info.email.strip()}")
+    if sections.personal_info.phone.strip():
+        lines.append(f"Phone: {sections.personal_info.phone.strip()}")
+    if sections.personal_info.location.strip():
+        lines.append(f"Location: {sections.personal_info.location.strip()}")
+
+    if sections.professional_summary_overview.strip():
+        lines.append("\nProfessional Summary:")
+        lines.append(sections.professional_summary_overview.strip())
+
+    if sections.skills_overview.strip():
+        lines.append("\nSkills:")
+        lines.append(sections.skills_overview.strip())
+
+    if sections.work_experience:
+        lines.append("\nWork Experience:")
+        for entry in sections.work_experience:
+            if not any(entry.model_dump().values()):
+                continue
+            header = " | ".join(
+                [part for part in [entry.role.strip(), entry.company_name.strip(), entry.location.strip()] if part]
+            )
+            if header:
+                lines.append(header)
+            date_range = " - ".join(
+                [part for part in [entry.start_date.strip(), "Present" if entry.currently_working else entry.end_date.strip()] if part]
+            )
+            if date_range:
+                lines.append(date_range)
+            if entry.overview.strip():
+                lines.append(entry.overview.strip())
+            lines.append("")
+
+    if sections.education:
+        lines.append("\nEducation:")
+        for entry in sections.education:
+            if not any(entry.model_dump().values()):
+                continue
+            header = " | ".join(
+                [part for part in [entry.degree.strip(), entry.institution_name.strip(), entry.location.strip()] if part]
+            )
+            if header:
+                lines.append(header)
+            date_range = " - ".join(
+                [part for part in [entry.start_date.strip(), "Present" if entry.currently_studying else entry.end_date.strip()] if part]
+            )
+            if date_range:
+                lines.append(date_range)
+            if entry.overview.strip():
+                lines.append(entry.overview.strip())
+            lines.append("")
+
+    if sections.projects:
+        lines.append("\nProjects:")
+        for entry in sections.projects:
+            if not entry.project_name and not entry.details:
+                continue
+            if entry.project_name.strip():
+                lines.append(entry.project_name.strip())
+            if entry.details.strip():
+                lines.append(entry.details.strip())
+            lines.append("")
+
+    if sections.certifications:
+        lines.append("\nCertifications:")
+        for entry in sections.certifications:
+            if not entry.certification_name and not entry.details:
+                continue
+            if entry.certification_name.strip():
+                lines.append(entry.certification_name.strip())
+            if entry.details.strip():
+                lines.append(entry.details.strip())
+            lines.append("")
+
+    if sections.additional_overview.strip():
+        lines.append("\nAdditional:")
+        lines.append(sections.additional_overview.strip())
+
+    return "\n".join(lines).strip()
+
+
 def _workspace_response(workspace: UserCvWorkspace | None) -> CVWorkspaceResponse:
     if not workspace:
         return CVWorkspaceResponse(
@@ -767,6 +860,51 @@ def generate_enhanced_cv_pdf(
         merged_skills_overview=normalized_sections.skills_overview,
         pdf_base64=pdf_base64,
         pdf_file_name="enhanced_cv.pdf",
+    )
+
+
+@auth_router.post("/cv/enhance/generate-cover-letter", response_model=CoverLetterGenerateResponse)
+def generate_cover_letter_from_workspace(
+    payload: CoverLetterGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    workspace = _upsert_workspace(db, current_user.id)
+    try:
+        raw_sections = json.loads(workspace.sections_json or "{}")
+    except json.JSONDecodeError:
+        raw_sections = {}
+
+    normalized_sections = _normalize_sections(raw_sections)
+    if not _has_workspace_content(normalized_sections):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="My Data is empty. Upload your CV or add your data first.",
+        )
+
+    cv_text = _workspace_sections_to_plain_text(normalized_sections)
+    if not cv_text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not prepare CV content from My Data.",
+        )
+
+    try:
+        generator = CoverLetterGenerator()
+        result = generator.generate_from_text(
+            cv_text=cv_text,
+            job_description=payload.job_description,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not generate cover letter: {exc}",
+        ) from exc
+
+    return CoverLetterGenerateResponse(
+        cover_letter_text=result.get("cover_letter_text", ""),
+        pdf_base64=result.get("cover_letter_pdf", ""),
+        pdf_file_name="cover_letter.pdf",
     )
 
 

@@ -51,6 +51,23 @@ class CoverLetterGenerator:
         cv_text = cv_extractor.extract_from_pdf(temp_cv_path)
         os.remove(temp_cv_path)
 
+        return self.generate_from_text(cv_text=cv_text, job_description=job_description)
+
+    def generate_from_text(self, cv_text: str, job_description: str) -> dict:
+        """
+        Generates a cover letter from plain CV text and job description.
+        """
+        cover_letter_text = self._generate_cover_letter_text(cv_text=cv_text, job_description=job_description)
+        pdf_base64 = self._generate_pdf(cover_letter_text)
+
+        return {
+            "cover_letter_text": cover_letter_text,
+            "cover_letter_pdf": pdf_base64,
+        }
+
+    def _generate_cover_letter_text(self, cv_text: str, job_description: str) -> str:
+        """Generate cover letter text using the configured LLM provider."""
+
         keyword_extractor = KeywordExtractor(use_spacy=False)
         jd_keywords = keyword_extractor.extract_keywords(job_description, max_keywords=15)
 
@@ -61,12 +78,7 @@ class CoverLetterGenerator:
         else:
             cover_letter_text = self._call_anthropic(prompt)
 
-        pdf_base64 = self._generate_pdf(cover_letter_text)
-
-        return {
-            "cover_letter_text": cover_letter_text,
-            "cover_letter_pdf": pdf_base64,
-        }
+        return cover_letter_text
 
     def _create_prompt(self, cv_text: str, job_description: str, jd_keywords: List[str]) -> str:
         return f"""
@@ -183,4 +195,3 @@ class CoverLetterGenerator:
             
             with open(pdf_path, 'rb') as pdf_file:
                 return base64.b64encode(pdf_file.read()).decode('utf-8')
-

@@ -66,12 +66,6 @@ export default function ProtectedRoute({ children }) {
               Home
             </Link>
             <Link
-              to="/cover-letter"
-              className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/50"
-            >
-              Cover Letter
-            </Link>
-            <Link
               to="/my-data"
               className="rounded-full border border-white/15 px-3 py-1.5 hover:border-teal/50"
             >
